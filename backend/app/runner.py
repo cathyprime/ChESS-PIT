@@ -5,14 +5,19 @@ import os
 import resource
 import subprocess
 import threading
+import secrets
 from pathlib import Path
 import chess
 import chess.engine
 import chess.pgn
-from sqlalchemy import select
+from sqlalchemy import select, func
 from .config import settings
 from .db import SessionLocal
-from .models import Bot, Game, RatingEvent, ArenaSetting
+from .models import Bot, Game, RatingEvent, ArenaSetting, RatingRun, now
+
+
+STOCKFISH_LEVELS = (1, 2, 3, 5, 8, 13, 20)
+_rating_lock = threading.Lock()
 
 
 def _limits():
@@ -22,17 +27,53 @@ def _limits():
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
 
-def engine_argv(path: str) -> list[str]:
-    if settings.runner_mode == "local":
+def engine_argv(path: str, trusted: bool = False) -> list[str]:
+    if trusted or settings.runner_mode == "local":
         return [path]
     return [settings.runner_wrapper, path]
 
 
-def engine_options(path: str, name: str) -> list[str]:
-    argv = engine_argv(path)
+def engine_options(path: str, name: str, trusted: bool = False,
+                   uci_options: dict[str, str | int] | None = None) -> list[str]:
+    argv = engine_argv(path, trusted)
     values = ["-engine", f"cmd={argv[0]}", f"name={name}"]
     values.extend(f"arg={arg}" for arg in argv[1:])
+    values.extend(f"option.{key}={value}" for key, value in (uci_options or {}).items())
     return values
+
+
+def options_for_bot(bot: Bot) -> list[str]:
+    if bot.engine_kind == "stockfish":
+        return engine_options(settings.stockfish_path, bot.name, trusted=True,
+                              uci_options={"Skill Level": int(bot.stockfish_skill or 0)})
+    return engine_options(bot.binary_path, bot.name)
+
+
+def ensure_stockfish_bots():
+    """Create or refresh the locked rated Stockfish competitors."""
+    path = Path(settings.stockfish_path)
+    available = path.is_file()
+    digest = "0" * 64
+    if available:
+        import hashlib
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    with SessionLocal() as db:
+        for skill in STOCKFISH_LEVELS:
+            bot = db.scalar(select(Bot).where(Bot.engine_kind == "stockfish",
+                                              Bot.stockfish_skill == skill))
+            if not bot:
+                name = f"Stockfish Level {skill}"
+                collision = db.scalar(select(Bot).where(func.lower(Bot.name) == name.lower()))
+                if collision:
+                    name = f"Stockfish Skill {skill}"
+                bot = Bot(name=name, binary_path=str(path), sha256=digest, owner_id="system",
+                          recovery_hash="", engine_kind="stockfish", stockfish_skill=skill)
+                db.add(bot)
+            bot.binary_path = str(path)
+            bot.sha256 = digest
+            bot.status = "active" if available else "unavailable"
+            bot.failure_reason = None if available else "Stockfish binary is unavailable"
+        db.commit()
 
 
 def validate_uci(path: str) -> tuple[bool, str | None]:
@@ -51,50 +92,60 @@ def validate_uci(path: str) -> tuple[bool, str | None]:
 
 
 def qualify_bot(bot_id: int):
-    with SessionLocal() as db:
-        bot = db.get(Bot, bot_id)
-        if not bot:
-            return
-        ok, reason = validate_uci(bot.binary_path)
-        if not ok:
-            bot.status, bot.failure_reason = "rejected", reason
+    with _rating_lock:
+        with SessionLocal() as db:
+            bot = db.get(Bot, bot_id)
+            if not bot:
+                return
+            ok, reason = validate_uci(bot.binary_path)
+            if not ok:
+                bot.status, bot.failure_reason = "rejected", reason
+                db.commit()
+                return
+            opponents = list(db.scalars(select(Bot).where(Bot.status == "active", Bot.id != bot.id)))
+            count = int(get_setting(db, "games_per_pair", "2"))
+            bot.status = "qualifying"
+            bot.qualification_total = len(opponents) * count
+            bot.qualification_done = 0
             db.commit()
+        try:
+            for opponent in opponents:
+                played = run_pairing(bot_id, opponent.id, count)
+                with SessionLocal() as db:
+                    bot = db.get(Bot, bot_id)
+                    if bot:
+                        bot.qualification_done += played
+                        db.commit()
+        except Exception as exc:
+            with SessionLocal() as db:
+                bot = db.get(Bot, bot_id)
+                if bot:
+                    bot.status, bot.failure_reason = "rejected", f"Match runner failed: {exc}"
+                    db.commit()
             return
-        opponents = list(db.scalars(select(Bot).where(Bot.status == "active", Bot.id != bot.id)))
-        bot.status = "qualifying"
-        bot.qualification_total = len(opponents) * int(get_setting(db, "games_per_pair", "2"))
-        db.commit()
-    for opponent in opponents:
-        run_pairing(bot_id, opponent.id)
-    with SessionLocal() as db:
-        bot = db.get(Bot, bot_id)
-        if bot and bot.status == "qualifying":
-            bot.status = "active"
-            db.commit()
-            recount(db)
+        with SessionLocal() as db:
+            bot = db.get(Bot, bot_id)
+            if bot and bot.status == "qualifying":
+                bot.status = "active"
+                db.commit()
+                recount(db)
 
 
-def run_pairing(new_id: int, opponent_id: int):
+def run_pairing(first_id: int, second_id: int, count: int | None = None) -> int:
     with SessionLocal() as db:
-        first, second = db.get(Bot, new_id), db.get(Bot, opponent_id)
-        if not first or not second or second.status != "active":
-            return
-        count = int(get_setting(db, "games_per_pair", "2"))
+        first, second = db.get(Bot, first_id), db.get(Bot, second_id)
+        if not first or not second or first.status not in ("active", "qualifying") or second.status != "active":
+            raise RuntimeError("A rated competitor is no longer active")
+        count = count or int(get_setting(db, "games_per_pair", "2"))
+        if count % 2:
+            count += 1
         tc = get_setting(db, "time_control", "10+0.1")
-        out_path = settings.storage_dir / "matches" / f"pair-{new_id}-{opponent_id}.pgn"
-        command = [settings.fastchess_path, *engine_options(first.binary_path, first.name),
-                   *engine_options(second.binary_path, second.name), "-each", f"tc={tc}",
+        out_path = settings.storage_dir / "matches" / f"pair-{first_id}-{second_id}-{secrets.token_hex(8)}.pgn"
+        command = [settings.fastchess_path, *options_for_bot(first), *options_for_bot(second), "-each", f"tc={tc}",
                    "proto=uci", "-rounds", str(max(1, count // 2)), "-repeat", "-games", "2",
                    "-concurrency", "1", "-pgnout", f"file={out_path}", "-recover"]
-    try:
-        subprocess.run(command, timeout=max(120, count * 120), check=True, capture_output=True, text=True)
-        import_pgn(out_path, "rated", first.id, second.id, tc)
-    except Exception as exc:
-        with SessionLocal() as db:
-            bot = db.get(Bot, new_id)
-            if bot:
-                bot.status, bot.failure_reason = "rejected", f"Match runner failed: {exc}"
-                db.commit()
+    subprocess.run(command, timeout=max(120, count * 120), check=True, capture_output=True, text=True)
+    return import_pgn(out_path, "rated", first.id, second.id, tc)
 
 
 def import_pgn(path: Path, mode: str, first_id: int | None, second_id: int | None, tc: str):
@@ -113,17 +164,17 @@ def import_pgn(path: Path, mode: str, first_id: int | None, second_id: int | Non
                           termination=game.headers.get("Termination"), pgn=text.getvalue(), time_control=tc)
             db.add(record)
             count += 1
-        bot = db.get(Bot, first_id) if first_id else None
-        if bot:
-            bot.qualification_done += count
         db.commit()
+    return count
 
 
 def recount(db):
     bots = list(db.scalars(select(Bot).where(Bot.status == "active")))
+    before = {bot.id: bot.rating for bot in bots}
     ratings = {b.id: 1500.0 for b in bots}
     records = {b.id: [0, 0, 0] for b in bots}
-    events = [(g.created_at, "game", g) for g in db.scalars(select(Game).where(Game.mode == "rated", Game.deleted == False))]
+    events = [(g.created_at, "game", g) for g in db.scalars(select(Game).where(
+        Game.mode == "rated", Game.status == "completed", Game.deleted == False))]
     events += [(e.created_at, "set", e) for e in db.scalars(select(RatingEvent))]
     k = float(get_setting(db, "k_factor", "32"))
     for _, kind, item in sorted(events, key=lambda x: (x[0], x[2].id)):
@@ -143,6 +194,113 @@ def recount(db):
         bot.rating = round(ratings[bot.id], 1)
         bot.wins, bot.draws, bot.losses = records[bot.id]
     db.commit()
+    return {
+        "gamesProcessed": sum(sum(value) for value in records.values()) // 2,
+        "competitorsUpdated": len(bots),
+        "changes": [
+            {"botId": bot.id, "name": bot.name, "before": before[bot.id], "after": bot.rating}
+            for bot in bots if before[bot.id] != bot.rating
+        ],
+    }
+
+
+def _valid_rated_count(db, first_id: int, second_id: int) -> int:
+    return int(db.scalar(select(func.count(Game.id)).where(
+        Game.mode == "rated", Game.status == "completed", Game.deleted == False,
+        Game.result.in_(("1-0", "0-1", "1/2-1/2")),
+        ((Game.white_bot_id == first_id) & (Game.black_bot_id == second_id)) |
+        ((Game.white_bot_id == second_id) & (Game.black_bot_id == first_id)),
+    )) or 0)
+
+
+def missing_pairings(db) -> list[tuple[int, int, int, str]]:
+    bots = list(db.scalars(select(Bot).where(Bot.status == "active").order_by(Bot.id)))
+    desired = int(get_setting(db, "games_per_pair", "2"))
+    missing = []
+    for index, first in enumerate(bots):
+        for second in bots[index + 1:]:
+            deficit = max(0, desired - _valid_rated_count(db, first.id, second.id))
+            if deficit:
+                game_count = deficit if deficit % 2 == 0 else deficit + 1
+                missing.append((first.id, second.id, game_count, f"{first.name} vs {second.name}"))
+    return missing
+
+
+def rating_run_json(run: RatingRun | None) -> dict:
+    if not run:
+        return {"status": "idle", "totalPairings": 0, "completedPairings": 0,
+                "totalGames": 0, "completedGames": 0, "currentPairing": None, "error": None}
+    return {"id": run.id, "status": run.status, "totalPairings": run.total_pairings,
+            "completedPairings": run.completed_pairings, "totalGames": run.total_games,
+            "completedGames": run.completed_games, "currentPairing": run.current_pairing,
+            "error": run.error, "createdAt": run.created_at, "completedAt": run.completed_at}
+
+
+def current_rating_run(db) -> RatingRun | None:
+    return db.scalar(select(RatingRun).order_by(RatingRun.id.desc()).limit(1))
+
+
+def start_missing_rating_run() -> RatingRun:
+    with SessionLocal() as db:
+        current = current_rating_run(db)
+        if current and current.status in ("queued", "running"):
+            return current
+        run = RatingRun(status="queued")
+        db.add(run); db.commit(); db.refresh(run)
+        run_id = run.id
+    threading.Thread(target=_rating_run_worker, args=(run_id,), daemon=True).start()
+    with SessionLocal() as db:
+        return db.get(RatingRun, run_id)
+
+
+def _rating_run_worker(run_id: int):
+    with _rating_lock:
+        try:
+            with SessionLocal() as db:
+                run = db.get(RatingRun, run_id)
+                if not run:
+                    return
+                tasks = missing_pairings(db)
+                run.status = "running"
+                run.completed_pairings = 0
+                run.completed_games = 0
+                run.total_pairings = len(tasks)
+                run.total_games = sum(task[2] for task in tasks)
+                db.commit()
+            for first_id, second_id, count, label in tasks:
+                with SessionLocal() as db:
+                    run = db.get(RatingRun, run_id)
+                    run.current_pairing = label
+                    db.commit()
+                played = run_pairing(first_id, second_id, count)
+                with SessionLocal() as db:
+                    run = db.get(RatingRun, run_id)
+                    run.completed_pairings += 1
+                    run.completed_games += played
+                    recount(db)
+                    db.commit()
+            with SessionLocal() as db:
+                run = db.get(RatingRun, run_id)
+                run.status, run.current_pairing, run.completed_at = "completed", None, now()
+                db.commit()
+        except Exception as exc:
+            with SessionLocal() as db:
+                run = db.get(RatingRun, run_id)
+                if run:
+                    run.status, run.error, run.completed_at = "failed", str(exc), now()
+                    db.commit()
+
+
+def resume_rating_run():
+    with SessionLocal() as db:
+        run = current_rating_run(db)
+        if not run or run.status not in ("queued", "running"):
+            return
+        run.status = "queued"
+        run.error = None
+        db.commit()
+        run_id = run.id
+    threading.Thread(target=_rating_run_worker, args=(run_id,), daemon=True).start()
 
 
 def get_setting(db, key: str, default: str) -> str:

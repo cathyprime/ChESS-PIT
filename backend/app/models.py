@@ -24,6 +24,8 @@ class Bot(Base):
     qualification_total: Mapped[int] = mapped_column(Integer, default=0)
     qualification_done: Mapped[int] = mapped_column(Integer, default=0)
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    engine_kind: Mapped[str] = mapped_column(String(20), default="uploaded", index=True)
+    stockfish_skill: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
@@ -68,3 +70,17 @@ class ArenaSetting(Base):
     __tablename__ = "arena_settings"
     key: Mapped[str] = mapped_column(String(50), primary_key=True)
     value: Mapped[str] = mapped_column(String(200))
+
+
+class RatingRun(Base):
+    __tablename__ = "rating_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
+    total_pairings: Mapped[int] = mapped_column(Integer, default=0)
+    completed_pairings: Mapped[int] = mapped_column(Integer, default=0)
+    total_games: Mapped[int] = mapped_column(Integer, default=0)
+    completed_games: Mapped[int] = mapped_column(Integer, default=0)
+    current_pairing: Mapped[str | None] = mapped_column(String(180), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

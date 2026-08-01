@@ -16,6 +16,12 @@ Manual showdowns and human games open in a dedicated live view. Moves, clocks,
 and viewer-scoped Stockfish analysis stream over WebSockets; completed games use
 the same route for progressive review. Rated qualification still uses fastchess.
 
+The ladder includes locked Stockfish Skill Level benchmarks at levels 1, 2, 3,
+5, 8, 13, and 20. Uploaded bots qualify against every active competitor. The
+admin panel separates **Run missing matches**, which fills gaps in the configured
+round robin, from **Recalculate Elo**, which rebuilds ratings from stored rated
+games and admin adjustments.
+
 Uploaded executables are untrusted. Local mode uses process resource limits and
 is intended only for binaries you trust. Production must set `RUNNER_MODE=podman`
 or `RUNNER_MODE=gvisor` on a dedicated Linux VPS.

@@ -6,3 +6,14 @@
 .admin-row { display: flex; align-items: center; gap: 6px; border-top: 1px solid #eee; padding: 7px 0; }
 .admin-row span { flex: 1; font-size: 12px; }
 .admin-row button { font-size: 11px; padding: 6px !important; }
+.system-tag { background: #e8ddc3; color: #75571c; }
+.admin-actions { display: grid; gap: 7px; margin: 14px 0; }
+.admin-actions button { width: 100%; }
+.admin-actions button:disabled { cursor: not-allowed; opacity: .55; }
+.rating-run { background: #f6f2e8; border: 1px solid #ddd4c3; border-radius: 5px; padding: 11px; margin: 12px 0; }
+.rating-run > div:first-child { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
+.rating-run span,.rating-run small { color: #777066; display: block; margin-top: 5px; font-size: 10px; }
+.progress { height: 5px; background: #dfd8ca; border-radius: 5px; overflow: hidden; margin-top: 8px; }
+.progress i { display: block; height: 100%; background: #bc8424; transition: width .3s; }
+.rating-run.completed .progress i { background: #4d8a49; }
+.rating-run.failed { border-color: #dca9a1; }

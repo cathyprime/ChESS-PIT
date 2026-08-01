@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import threading
+import math
 from pathlib import Path
 import chess
 import chess.engine
@@ -20,7 +21,9 @@ from .config import settings
 from .db import Base, engine, SessionLocal, get_db, migrate_existing_database
 from .models import Bot, Game, RatingEvent, ArenaSetting
 from .security import read_session, require_admin, sign_session, credential_matches, new_token, token_hash
-from .runner import qualify_bot, recount, analyse_game, get_setting, engine_argv, engine_options
+from .runner import (qualify_bot, recount, analyse_game, get_setting, engine_argv, engine_options,
+                     ensure_stockfish_bots, start_missing_rating_run, current_rating_run,
+                     rating_run_json, resume_rating_run)
 from .live import live_manager, game_snapshot, moves_for_game, board_from_moves, export_pgn, parse_json, utcnow
 
 
@@ -33,6 +36,8 @@ app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_origin], all
 
 @app.on_event("startup")
 def resume_live_games():
+    ensure_stockfish_bots()
+    resume_rating_run()
     live_manager.resume()
 
 
@@ -92,7 +97,9 @@ def bot_json(bot: Bot, owner: str | None = None):
     return {"id": bot.id, "name": bot.name, "status": bot.status, "rating": bot.rating,
             "wins": bot.wins, "draws": bot.draws, "losses": bot.losses,
             "qualificationDone": bot.qualification_done, "qualificationTotal": bot.qualification_total,
-            "failureReason": bot.failure_reason, "owned": owner == bot.owner_id, "createdAt": bot.created_at}
+            "failureReason": bot.failure_reason, "owned": owner == bot.owner_id and bot.engine_kind == "uploaded",
+            "system": bot.engine_kind == "stockfish", "engineKind": bot.engine_kind,
+            "stockfishSkill": bot.stockfish_skill, "createdAt": bot.created_at}
 
 
 @app.get("/api/bots")
@@ -123,6 +130,7 @@ async def upload_bot(request: Request, name: str = Form(...), binary: UploadFile
 
 
 def owned(bot: Bot, user: dict):
+    if bot.engine_kind == "stockfish": raise HTTPException(403, "System competitors are locked")
     if bot.owner_id != user.get("owner") and not user.get("admin"): raise HTTPException(403, "You do not own this bot")
 
 
@@ -188,6 +196,9 @@ def resolve_engine(value: str, db: Session):
                 "trusted": True, "stockfish": True}
     bot = db.get(Bot, int(value))
     if not bot or bot.status != "active": raise HTTPException(400, "Bot is not active")
+    if bot.engine_kind == "stockfish":
+        return {"path": settings.stockfish_path, "name": bot.name, "botId": bot.id,
+                "trusted": True, "stockfish": True, "stockfishSkill": bot.stockfish_skill}
     return {"path": bot.binary_path, "name": bot.name, "botId": bot.id,
             "trusted": False, "stockfish": False}
 
@@ -327,6 +338,8 @@ def update_settings(body: SettingsUpdate, request: Request, db: Session = Depend
     require_admin(request)
     if body.games_per_pair < 2 or body.games_per_pair > 100 or body.games_per_pair % 2: raise HTTPException(400, "Games must be even, from 2 to 100")
     if not re.fullmatch(r"\d+(?:\.\d+)?\+\d+(?:\.\d+)?", body.time_control): raise HTTPException(400, "Use a time control such as 10+0.1")
+    if not math.isfinite(body.k_factor) or body.k_factor < 1 or body.k_factor > 128:
+        raise HTTPException(400, "K-factor must be from 1 to 128")
     for key, value in (("games_per_pair", body.games_per_pair), ("time_control", body.time_control), ("k_factor", body.k_factor)):
         row = db.get(ArenaSetting, key)
         if row: row.value = str(value)
@@ -343,7 +356,20 @@ def set_rating(bot_id: int, body: RatingChange, request: Request, db: Session = 
 
 @app.post("/api/admin/recount")
 def force_recount(request: Request, db: Session = Depends(get_db)):
-    require_admin(request); recount(db); return {"ok": True}
+    require_admin(request)
+    return {"ok": True, **recount(db)}
+
+
+@app.post("/api/admin/rating-runs/missing", status_code=202)
+def run_missing_ratings(request: Request):
+    require_admin(request)
+    return rating_run_json(start_missing_rating_run())
+
+
+@app.get("/api/admin/rating-runs/current")
+def rating_run_status(request: Request, db: Session = Depends(get_db)):
+    require_admin(request)
+    return rating_run_json(current_rating_run(db))
 
 
 @app.delete("/api/admin/games/{game_id}")
@@ -357,4 +383,5 @@ def delete_game(game_id: int, request: Request, db: Session = Depends(get_db)):
 def purge_bot(bot_id: int, request: Request, db: Session = Depends(get_db)):
     require_admin(request); bot = db.get(Bot, bot_id)
     if not bot: raise HTTPException(404, "Bot not found")
+    if bot.engine_kind == "stockfish": raise HTTPException(403, "System competitors cannot be deleted")
     bot.status = "retired"; Path(bot.binary_path).unlink(missing_ok=True); db.commit(); recount(db); return {"ok": True}

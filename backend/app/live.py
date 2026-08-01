@@ -165,6 +165,9 @@ class LiveGameManager:
                 db.commit()
             white_engine = chess.engine.SimpleEngine.popen_uci(self._engine_command(config["white"]))
             black_engine = chess.engine.SimpleEngine.popen_uci(self._engine_command(config["black"]))
+            for engine, engine_config in ((white_engine, config["white"]), (black_engine, config["black"])):
+                if engine_config.get("stockfishSkill") is not None:
+                    engine.configure({"Skill Level": int(engine_config["stockfishSkill"])})
             while not board.is_game_over(claim_draw=True):
                 with SessionLocal() as db:
                     game = db.get(Game, game_id)
@@ -274,7 +277,7 @@ class LiveGameManager:
                 opponent = config["opponent"]
             engine = chess.engine.SimpleEngine.popen_uci(self._engine_command(opponent))
             if opponent.get("stockfish"):
-                engine.configure({"Skill Level": int(config.get("stockfishSkill", 10))})
+                engine.configure({"Skill Level": int(opponent.get("stockfishSkill", config.get("stockfishSkill", 10)))})
             result = engine.play(board, chess.engine.Limit(time=max(.1, config["moveTimeMs"] / 1000)))
             if result.move not in board.legal_moves:
                 raise RuntimeError("Engine returned an illegal move")
