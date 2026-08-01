@@ -22,6 +22,10 @@ admin panel separates **Run missing matches**, which fills gaps in the configure
 round robin, from **Recalculate Elo**, which rebuilds ratings from stored rated
 games and admin adjustments.
 
+Leaderboard bot names open a paginated bot history with every linked rated,
+exhibition, and human game. Results are shown from that bot's perspective, and
+each row opens the existing board and analysis view.
+
 Uploaded executables are untrusted. Local mode uses process resource limits and
 is intended only for binaries you trust. Production must set `RUNNER_MODE=podman`
 or `RUNNER_MODE=gvisor` on a dedicated Linux VPS.

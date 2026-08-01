@@ -25,6 +25,7 @@ from .runner import (qualify_bot, recount, analyse_game, get_setting, engine_arg
                      ensure_stockfish_bots, start_missing_rating_run, current_rating_run,
                      rating_run_json, resume_rating_run)
 from .live import live_manager, game_snapshot, moves_for_game, board_from_moves, export_pgn, parse_json, utcnow
+from .history import bot_history_page
 
 
 Base.metadata.create_all(engine)
@@ -107,6 +108,18 @@ def bots(request: Request, db: Session = Depends(get_db)):
     user = read_session(request)
     rows = list(db.scalars(select(Bot).where(Bot.status != "retired").order_by(Bot.rating.desc(), Bot.name)))
     return [bot_json(x, user["owner"]) for x in rows]
+
+
+@app.get("/api/bots/{bot_id}/games")
+def bot_games(bot_id: int, request: Request, offset: int = 0, limit: int = 50,
+              db: Session = Depends(get_db)):
+    user = read_session(request)
+    if offset < 0: raise HTTPException(400, "Offset cannot be negative")
+    if limit < 1 or limit > 100: raise HTTPException(400, "Limit must be from 1 to 100")
+    bot = db.get(Bot, bot_id)
+    if not bot: raise HTTPException(404, "Bot not found")
+    page = bot_history_page(db, bot, offset, limit)
+    return {"bot": bot_json(bot, user["owner"]), **page}
 
 
 @app.post("/api/bots")

@@ -42,6 +42,8 @@ def migrate_existing_database():
         for name, definition in game_additions.items():
             if name not in game_existing:
                 connection.execute(text(f"ALTER TABLE games ADD COLUMN {name} {definition}"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_games_white_bot_id ON games (white_bot_id)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_games_black_bot_id ON games (black_bot_id)"))
         if "bots" in tables:
             bot_existing = {column["name"] for column in inspect(engine).get_columns("bots")}
             bot_additions = {

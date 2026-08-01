@@ -33,8 +33,8 @@ class Game(Base):
     __tablename__ = "games"
     id: Mapped[int] = mapped_column(primary_key=True)
     mode: Mapped[str] = mapped_column(String(20), index=True)
-    white_bot_id: Mapped[int | None] = mapped_column(ForeignKey("bots.id"), nullable=True)
-    black_bot_id: Mapped[int | None] = mapped_column(ForeignKey("bots.id"), nullable=True)
+    white_bot_id: Mapped[int | None] = mapped_column(ForeignKey("bots.id"), nullable=True, index=True)
+    black_bot_id: Mapped[int | None] = mapped_column(ForeignKey("bots.id"), nullable=True, index=True)
     white_name: Mapped[str] = mapped_column(String(80))
     black_name: Mapped[str] = mapped_column(String(80))
     result: Mapped[str] = mapped_column(String(10), default="*")
