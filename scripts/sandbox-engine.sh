@@ -9,4 +9,4 @@ exec podman run --rm -i "${runtime_args[@]}" \
   --network=none --read-only --user=65534:65534 \
   --cap-drop=all --security-opt=no-new-privileges \
   --pids-limit=64 --memory=512m --cpus=1 --tmpfs=/tmp:rw,noexec,nosuid,size=16m \
-  -v "$engine_path:/engine:ro,Z" cbfc-engine-runtime:latest /engine
+  -v "$engine_path:/engine:ro,Z" deathpit-engine-runtime:latest /engine

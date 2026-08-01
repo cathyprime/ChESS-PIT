@@ -6,4 +6,4 @@ python-chess==1.999
 itsdangerous==2.2.0
 argon2-cffi==25.1.0
 psycopg[binary]==3.2.9
-
+Pillow==11.3.0

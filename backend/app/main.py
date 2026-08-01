@@ -14,6 +14,7 @@ import chess.engine
 import chess.pgn
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile, File, Form, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
@@ -26,11 +27,14 @@ from .runner import (qualify_bot, recount, analyse_game, get_setting, engine_arg
                      rating_run_json, resume_rating_run)
 from .live import live_manager, game_snapshot, moves_for_game, board_from_moves, export_pgn, parse_json, utcnow
 from .history import bot_history_page
+from .validation import normalize_bot_description
+from .avatars import (MAX_AVATAR_BYTES, STOCKFISH_VARIANTS, avatar_path_for, avatar_style_for_bot, avatar_url, avatar_url_for_bot,
+                      remove_stored_avatar, stockfish_asset, store_avatar, validate_avatar)
 
 
 Base.metadata.create_all(engine)
 migrate_existing_database()
-app = FastAPI(title="Chess Bot Fight Club", version="0.1.0")
+app = FastAPI(title="DeathPit", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_origin], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
 
@@ -43,7 +47,9 @@ def resume_live_games():
 
 
 class Login(BaseModel): password: str
-class Rename(BaseModel): name: str
+class Rename(BaseModel):
+    name: str | None = None
+    description: str | None = None
 class RatingChange(BaseModel): value: float; reason: str = "Admin adjustment"
 class SettingsUpdate(BaseModel): games_per_pair: int; time_control: str; k_factor: float
 class Exhibition(BaseModel): white: str; black: str; time_control: str = "10+0.1"
@@ -56,7 +62,7 @@ class HumanMove(BaseModel): uci: str
 
 
 def cookie(response: Response, value: str):
-    response.set_cookie("cbfc_session", value, httponly=True, secure=settings.secure_cookies,
+    response.set_cookie("deathpit_session", value, httponly=True, secure=settings.secure_cookies,
                         samesite="lax", max_age=60 * 60 * 24 * 30)
 
 
@@ -91,16 +97,38 @@ def session(request: Request):
 
 @app.post("/api/auth/logout")
 def logout(response: Response):
-    response.delete_cookie("cbfc_session"); return {"ok": True}
+    response.delete_cookie("deathpit_session"); return {"ok": True}
 
 
 def bot_json(bot: Bot, owner: str | None = None):
-    return {"id": bot.id, "name": bot.name, "status": bot.status, "rating": bot.rating,
+    return {"id": bot.id, "name": bot.name, "description": bot.description or "", "status": bot.status, "rating": bot.rating,
             "wins": bot.wins, "draws": bot.draws, "losses": bot.losses,
             "qualificationDone": bot.qualification_done, "qualificationTotal": bot.qualification_total,
             "failureReason": bot.failure_reason, "owned": owner == bot.owner_id and bot.engine_kind == "uploaded",
             "system": bot.engine_kind == "stockfish", "engineKind": bot.engine_kind,
-            "stockfishSkill": bot.stockfish_skill, "createdAt": bot.created_at}
+            "stockfishSkill": bot.stockfish_skill, "avatarUrl": avatar_url_for_bot(bot),
+            "avatarStyle": avatar_style_for_bot(bot),
+            "createdAt": bot.created_at}
+
+
+def png_response(path: Path):
+    return FileResponse(path, media_type="image/png",
+                        headers={"Cache-Control": "private, max-age=0, must-revalidate"})
+
+
+@app.get("/api/avatars/stockfish/{variant}")
+def stockfish_avatar(variant: str, request: Request):
+    read_session(request)
+    if variant not in STOCKFISH_VARIANTS: raise HTTPException(404, "Avatar not found")
+    return png_response(stockfish_asset(variant))
+
+
+@app.get("/api/bots/{bot_id}/avatar")
+def bot_avatar(bot_id: int, request: Request, db: Session = Depends(get_db)):
+    read_session(request)
+    bot = db.get(Bot, bot_id)
+    if not bot: raise HTTPException(404, "Bot not found")
+    return png_response(avatar_path_for(bot))
 
 
 @app.get("/api/bots")
@@ -123,21 +151,36 @@ def bot_games(bot_id: int, request: Request, offset: int = 0, limit: int = 50,
 
 
 @app.post("/api/bots")
-async def upload_bot(request: Request, name: str = Form(...), binary: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_bot(request: Request, name: str = Form(...), description: str = Form(...), binary: UploadFile = File(...),
+                     avatar: UploadFile = File(...), db: Session = Depends(get_db)):
     user = read_session(request)
     name = name.strip()
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}", name): raise HTTPException(400, "Invalid bot name")
+    try:
+        description = normalize_bot_description(description)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     if db.scalar(select(Bot).where(func.lower(Bot.name) == name.lower())): raise HTTPException(409, "Bot name already exists")
     data = await binary.read(50 * 1024 * 1024 + 1)
     if len(data) > 50 * 1024 * 1024: raise HTTPException(413, "Binary exceeds 50 MB")
     if len(data) < 20 or data[:4] != b"\x7fELF" or data[4] != 2 or int.from_bytes(data[18:20], "little") != 62:
         raise HTTPException(400, "Upload must be a 64-bit x86-64 ELF executable")
+    try:
+        avatar_data, avatar_digest = validate_avatar(await avatar.read(MAX_AVATAR_BYTES + 1))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     recovery = new_token()
     digest = hashlib.sha256(data).hexdigest()
     target = settings.storage_dir / "bots" / new_token()
     target.write_bytes(data); target.chmod(0o500)
-    bot = Bot(name=name, binary_path=str(target), sha256=digest, owner_id=user["owner"], recovery_hash=token_hash(recovery))
-    db.add(bot); db.commit(); db.refresh(bot)
+    avatar_target = store_avatar(avatar_data)
+    bot = Bot(name=name, description=description, binary_path=str(target), sha256=digest, owner_id=user["owner"],
+              recovery_hash=token_hash(recovery), avatar_path=str(avatar_target),
+              avatar_sha256=avatar_digest, avatar_style="mask")
+    try:
+        db.add(bot); db.commit(); db.refresh(bot)
+    except Exception:
+        target.unlink(missing_ok=True); remove_stored_avatar(str(avatar_target)); raise
     threading.Thread(target=qualify_bot, args=(bot.id,), daemon=True).start()
     return {"bot": bot_json(bot, user["owner"]), "recoveryToken": recovery}
 
@@ -147,15 +190,46 @@ def owned(bot: Bot, user: dict):
     if bot.owner_id != user.get("owner") and not user.get("admin"): raise HTTPException(403, "You do not own this bot")
 
 
+@app.put("/api/bots/{bot_id}/avatar")
+async def replace_bot_avatar(bot_id: int, request: Request, avatar: UploadFile = File(...),
+                             db: Session = Depends(get_db)):
+    user, bot = read_session(request), db.get(Bot, bot_id)
+    if not bot: raise HTTPException(404, "Bot not found")
+    owned(bot, user)
+    try:
+        data, digest = validate_avatar(await avatar.read(MAX_AVATAR_BYTES + 1))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    old_path = bot.avatar_path
+    target = store_avatar(data)
+    bot.avatar_path, bot.avatar_sha256, bot.avatar_style = str(target), digest, "mask"
+    try:
+        db.commit()
+    except Exception:
+        remove_stored_avatar(str(target)); raise
+    remove_stored_avatar(old_path)
+    return bot_json(bot, user["owner"])
+
+
 @app.patch("/api/bots/{bot_id}")
 def rename_bot(bot_id: int, body: Rename, request: Request, db: Session = Depends(get_db)):
     user, bot = read_session(request), db.get(Bot, bot_id)
     if not bot: raise HTTPException(404, "Bot not found")
-    owned(bot, user); name = body.name.strip()
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}", name): raise HTTPException(400, "Invalid bot name")
-    duplicate = db.scalar(select(Bot).where(func.lower(Bot.name) == name.lower(), Bot.id != bot.id))
-    if duplicate: raise HTTPException(409, "Bot name already exists")
-    bot.name = name; db.commit(); return bot_json(bot, user["owner"])
+    owned(bot, user)
+    if body.name is None and body.description is None:
+        raise HTTPException(400, "Provide a name or description to update")
+    if body.name is not None:
+        name = body.name.strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}", name): raise HTTPException(400, "Invalid bot name")
+        duplicate = db.scalar(select(Bot).where(func.lower(Bot.name) == name.lower(), Bot.id != bot.id))
+        if duplicate: raise HTTPException(409, "Bot name already exists")
+        bot.name = name
+    if body.description is not None:
+        try:
+            bot.description = normalize_bot_description(body.description)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+    db.commit(); return bot_json(bot, user["owner"])
 
 
 @app.delete("/api/bots/{bot_id}")
@@ -172,12 +246,19 @@ def claim_bot(bot_id: int, body: Login, request: Request, db: Session = Depends(
     bot.owner_id = user["owner"]; db.commit(); return {"ok": True}
 
 
-def game_json(g: Game, detail=False):
+def game_json(g: Game, db: Session, detail=False):
+    white_bot = db.get(Bot, g.white_bot_id) if g.white_bot_id else None
+    black_bot = db.get(Bot, g.black_bot_id) if g.black_bot_id else None
     value = {"id": g.id, "mode": g.mode, "whiteName": g.white_name, "blackName": g.black_name,
+             "whiteBotId": g.white_bot_id, "blackBotId": g.black_bot_id,
+             "whiteAvatarUrl": avatar_url(g.white_bot_id, g.white_name),
+             "blackAvatarUrl": avatar_url(g.black_bot_id, g.black_name),
+             "whiteAvatarStyle": avatar_style_for_bot(white_bot, g.white_name),
+             "blackAvatarStyle": avatar_style_for_bot(black_bot, g.black_name),
              "result": g.result, "termination": g.termination, "timeControl": g.time_control,
              "status": g.status, "analysed": bool(g.analysis_json), "createdAt": g.created_at}
     if detail:
-        value.update(game_snapshot(g))
+        value.update(game_snapshot(g, db=db))
         value["pgn"] = g.pgn
     return value
 
@@ -185,14 +266,14 @@ def game_json(g: Game, detail=False):
 @app.get("/api/games")
 def games(request: Request, db: Session = Depends(get_db)):
     read_session(request)
-    return [game_json(g) for g in db.scalars(select(Game).where(Game.deleted == False).order_by(Game.id.desc()).limit(200))]
+    return [game_json(g, db) for g in db.scalars(select(Game).where(Game.deleted == False).order_by(Game.id.desc()).limit(200))]
 
 
 @app.get("/api/games/{game_id}")
 def game(game_id: int, request: Request, db: Session = Depends(get_db)):
     user = read_session(request); row = db.get(Game, game_id)
     if not row or row.deleted: raise HTTPException(404, "Game not found")
-    value = game_snapshot(row, user.get("owner"), bool(user.get("admin")))
+    value = game_snapshot(row, user.get("owner"), bool(user.get("admin")), db)
     value["pgn"] = row.pgn
     return value
 
@@ -232,7 +313,7 @@ def exhibition(body: Exhibition, request: Request, response: Response, db: Sessi
     db.add(row); db.commit(); db.refresh(row)
     live_manager.start_showdown(row.id)
     response.status_code = 202
-    return game_snapshot(row, user["owner"], bool(user.get("admin")))
+    return game_snapshot(row, user["owner"], bool(user.get("admin")), db)
 
 
 @app.post("/api/human-games")
@@ -259,7 +340,7 @@ def human_start(body: HumanStart, request: Request, db: Session = Depends(get_db
                                               "stockfishSkill": body.stockfish_skill}))
     db.add(row); db.commit(); db.refresh(row)
     if not human_white: live_manager.start_human_engine_turn(row.id)
-    return game_snapshot(row, user["owner"], bool(user.get("admin")))
+    return game_snapshot(row, user["owner"], bool(user.get("admin")), db)
 
 
 @app.post("/api/human-games/{game_id}/move")
@@ -283,7 +364,7 @@ def human_move(game_id: int, body: HumanMove, request: Request, db: Session = De
     row.pgn = export_pgn(row, moves, board); db.commit()
     if row.status == "running": live_manager.start_human_engine_turn(row.id)
     live_manager.ensure_analysis(row.id)
-    return game_snapshot(row, user["owner"], bool(user.get("admin")))
+    return game_snapshot(row, user["owner"], bool(user.get("admin")), db)
 
 
 @app.post("/api/human-games/{game_id}/resign")
@@ -294,7 +375,7 @@ def resign_human(game_id: int, request: Request, db: Session = Depends(get_db)):
     config = parse_json(row.engine_config_json, {})
     row.result = "0-1" if config.get("humanColor") == "white" else "1-0"
     row.status, row.termination, row.completed_at = "completed", "resignation", utcnow()
-    db.commit(); return game_snapshot(row, user["owner"], bool(user.get("admin")))
+    db.commit(); return game_snapshot(row, user["owner"], bool(user.get("admin")), db)
 
 
 @app.post("/api/games/{game_id}/abort")
@@ -304,7 +385,7 @@ def abort_game(game_id: int, request: Request, db: Session = Depends(get_db)):
     if row.creator_owner_id != user.get("owner") and not user.get("admin"): raise HTTPException(403, "Not allowed")
     if row.status not in ("queued", "running"): raise HTTPException(400, "Game has already finished")
     row.status, row.termination, row.completed_at = "aborted", "aborted", utcnow()
-    db.commit(); return game_snapshot(row, user["owner"], bool(user.get("admin")))
+    db.commit(); return game_snapshot(row, user["owner"], bool(user.get("admin")), db)
 
 
 @app.websocket("/api/games/{game_id}/stream")
@@ -323,7 +404,7 @@ async def game_stream(websocket: WebSocket, game_id: int):
         while True:
             with SessionLocal() as db:
                 row = db.get(Game, game_id)
-                payload = game_snapshot(row, user.get("owner"), bool(user.get("admin")))
+                payload = game_snapshot(row, user.get("owner"), bool(user.get("admin")), db)
             encoded = json.dumps(payload, sort_keys=True)
             if encoded != last:
                 await websocket.send_json({"type": "snapshot", "game": payload})
@@ -397,4 +478,5 @@ def purge_bot(bot_id: int, request: Request, db: Session = Depends(get_db)):
     require_admin(request); bot = db.get(Bot, bot_id)
     if not bot: raise HTTPException(404, "Bot not found")
     if bot.engine_kind == "stockfish": raise HTTPException(403, "System competitors cannot be deleted")
-    bot.status = "retired"; Path(bot.binary_path).unlink(missing_ok=True); db.commit(); recount(db); return {"ok": True}
+    bot.status = "retired"; Path(bot.binary_path).unlink(missing_ok=True); remove_stored_avatar(bot.avatar_path)
+    bot.avatar_path = None; db.commit(); recount(db); return {"ok": True}

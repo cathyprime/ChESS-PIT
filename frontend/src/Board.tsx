@@ -1,10 +1,12 @@
 import {useMemo,useState} from 'react';
 import {Chess} from 'chess.js';
-import {Chessboard,type ChessboardOptions} from 'react-chessboard';
+import {Chessboard,defaultPieces,type ChessboardOptions,type PieceRenderObject} from 'react-chessboard';
+import {assetUrl} from './api';
+import type {AvatarStyle} from './types';
 
-type Props={fen:string;orientation:'white'|'black';interactive?:boolean;lastMove?:string;onMove?:(uci:string)=>void};
+type Props={fen:string;orientation:'white'|'black';interactive?:boolean;lastMove?:string;whiteAvatarUrl?:string;blackAvatarUrl?:string;whiteAvatarStyle?:AvatarStyle;blackAvatarStyle?:AvatarStyle;onMove?:(uci:string)=>void};
 
-export function ArenaBoard({fen,orientation,interactive=false,lastMove,onMove}:Props){
+export function ArenaBoard({fen,orientation,interactive=false,lastMove,whiteAvatarUrl,blackAvatarUrl,whiteAvatarStyle='mask',blackAvatarStyle='mask',onMove}:Props){
  const [selected,setSelected]=useState<string>();
  const [promotion,setPromotion]=useState<{from:string,to:string}>();
  const chess=useMemo(()=>new Chess(fen),[fen]);
@@ -19,14 +21,20 @@ export function ArenaBoard({fen,orientation,interactive=false,lastMove,onMove}:P
  if(selected)squareStyles[selected]={boxShadow:'inset 0 0 0 4px #e7b84b'};
  for(const square of destinations)squareStyles[square]={background:'radial-gradient(circle, rgba(34,75,48,.48) 0 18%, transparent 20%)'};
  if(lastMove && lastMove.length>=4){squareStyles[lastMove.slice(0,2)]={background:'rgba(236,190,64,.48)'};squareStyles[lastMove.slice(2,4)]={background:'rgba(236,190,64,.58)'}}
+ const pieces=useMemo<PieceRenderObject>(()=>Object.fromEntries(Object.entries(defaultPieces).map(([pieceType,DefaultPiece])=>[pieceType,(props:any)=>{
+  const white=pieceType.startsWith('w');
+  const avatar=assetUrl(white?whiteAvatarUrl:blackAvatarUrl);
+  const avatarStyle=white?whiteAvatarStyle:blackAvatarStyle;
+  return <div className="piece-with-mask"><DefaultPiece {...props}/>{avatar&&<span className={`piece-mask ${avatarStyle}`}><img src={avatar} alt="" draggable={false}/></span>}</div>
+ }])),[whiteAvatarUrl,blackAvatarUrl,whiteAvatarStyle,blackAvatarStyle]);
  const options:ChessboardOptions={
-  id:'cbfc-board',position:fen,boardOrientation:orientation,showNotation:true,animationDurationInMs:220,
-  darkSquareStyle:{backgroundColor:'#769656'},lightSquareStyle:{backgroundColor:'#eeeed2'},squareStyles,
+  id:'deathpit-board',position:fen,boardOrientation:orientation,showNotation:true,animationDurationInMs:0,pieces,
+  darkSquareStyle:{backgroundColor:'#3b2827'},lightSquareStyle:{backgroundColor:'#e2d1ad'},squareStyles,
   allowDragging:interactive,allowDrawingArrows:!interactive,
   canDragPiece:({piece})=>interactive&&piece.pieceType[0].toLowerCase()===(chess.turn()==='w'?'w':'b'),
   onPieceDrop:({sourceSquare,targetSquare})=>targetSquare?submit(sourceSquare,targetSquare):false,
   onSquareClick:({piece,square})=>{if(!interactive)return;if(selected&&submit(selected,square))return;if(piece&&piece.pieceType[0].toLowerCase()===(chess.turn()==='w'?'w':'b'))setSelected(square);else setSelected(undefined)},
-  boardStyle:{borderRadius:'4px',boxShadow:'0 14px 40px rgba(0,0,0,.28)'},
+  boardStyle:{borderRadius:'2px',boxShadow:'0 0 0 2px #120908, 0 8px 24px rgba(0,0,0,.64)'},
  };
  return <div className="arena-board"><Chessboard options={options}/>{promotion&&<div className="promotion"><span>Promote to</span>{[['q','♛'],['r','♜'],['b','♝'],['n','♞']].map(([code,glyph])=><button key={code} onClick={()=>{submit(promotion.from,promotion.to,code);setPromotion(undefined)}}>{glyph}</button>)}<button className="cancel" onClick={()=>setPromotion(undefined)}>Cancel</button></div>}</div>
 }

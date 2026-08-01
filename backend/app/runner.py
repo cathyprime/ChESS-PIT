@@ -49,6 +49,19 @@ def options_for_bot(bot: Bot) -> list[str]:
     return engine_options(bot.binary_path, bot.name)
 
 
+def stockfish_description(skill: int) -> str:
+    descriptions = {
+        1: "Stockfish benchmark at Skill Level 1: a restrained tactical baseline.",
+        2: "Low-strength Stockfish benchmark for early ladder testing.",
+        3: "Developing Stockfish benchmark with basic tactical pressure.",
+        5: "Mid-low Stockfish benchmark balancing tactics and safety.",
+        8: "Intermediate Stockfish benchmark with sharper calculation.",
+        13: "Strong Stockfish benchmark with consistent tactical depth.",
+        20: "High-strength Stockfish benchmark with relentless calculation.",
+    }
+    return descriptions.get(skill, f"Stockfish benchmark at Skill Level {skill}.")
+
+
 def ensure_stockfish_bots():
     """Create or refresh the locked rated Stockfish competitors."""
     path = Path(settings.stockfish_path)
@@ -71,6 +84,8 @@ def ensure_stockfish_bots():
                 db.add(bot)
             bot.binary_path = str(path)
             bot.sha256 = digest
+            if not bot.description:
+                bot.description = stockfish_description(skill)
             bot.status = "active" if available else "unavailable"
             bot.failure_reason = None if available else "Stockfish binary is unavailable"
         db.commit()

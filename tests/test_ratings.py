@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import ArenaSetting, Bot, Game, RatingEvent
-from app.runner import missing_pairings, options_for_bot, recount
+from app.runner import missing_pairings, options_for_bot, recount, stockfish_description
 
 
 class RatingTests(unittest.TestCase):
@@ -72,6 +72,10 @@ class RatingTests(unittest.TestCase):
 
         self.assertIn("name=Stockfish Level 13", options)
         self.assertIn("option.Skill Level=13", options)
+
+    def test_stockfish_description_is_stable_for_benchmarks(self):
+        self.assertIn("High-strength Stockfish", stockfish_description(20))
+        self.assertIn("Skill Level 7", stockfish_description(7))
 
 
 if __name__ == "__main__":

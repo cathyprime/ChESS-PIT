@@ -13,8 +13,9 @@ from sqlalchemy import select
 
 from .config import settings
 from .db import SessionLocal
-from .models import Game
+from .models import Bot, Game
 from .runner import engine_argv
+from .avatars import avatar_style_for_bot, avatar_url
 
 
 START_FEN = chess.STARTING_FEN
@@ -58,7 +59,7 @@ def board_from_moves(moves: list[dict]) -> chess.Board:
 def export_pgn(game: Game, moves: list[dict], board: chess.Board) -> str:
     record = chess.pgn.Game()
     record.headers.update({
-        "Event": "Chess Bot Fight Club",
+        "Event": "DeathPit",
         "White": game.white_name,
         "Black": game.black_name,
         "Result": game.result,
@@ -72,7 +73,7 @@ def export_pgn(game: Game, moves: list[dict], board: chess.Board) -> str:
     return record.accept(chess.pgn.StringExporter(headers=True, variations=False, comments=False))
 
 
-def game_snapshot(game: Game, owner_id: str | None = None, admin: bool = False) -> dict:
+def game_snapshot(game: Game, owner_id: str | None = None, admin: bool = False, db=None) -> dict:
     moves = moves_for_game(game)
     analysis = parse_json(game.analysis_json, [])
     fen = game.current_fen or (moves[-1]["fen"] if moves else START_FEN)
@@ -85,6 +86,12 @@ def game_snapshot(game: Game, owner_id: str | None = None, admin: bool = False) 
         "blackName": game.black_name,
         "whiteBotId": game.white_bot_id,
         "blackBotId": game.black_bot_id,
+        "whiteAvatarUrl": avatar_url(game.white_bot_id, game.white_name),
+        "blackAvatarUrl": avatar_url(game.black_bot_id, game.black_name),
+        "whiteAvatarStyle": avatar_style_for_bot(db.get(Bot, game.white_bot_id) if db and game.white_bot_id else None,
+                                                  game.white_name),
+        "blackAvatarStyle": avatar_style_for_bot(db.get(Bot, game.black_bot_id) if db and game.black_bot_id else None,
+                                                  game.black_name),
         "result": game.result,
         "termination": game.termination,
         "timeControl": game.time_control,

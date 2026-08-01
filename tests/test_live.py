@@ -28,6 +28,8 @@ class LiveGameTests(unittest.TestCase):
         snapshot = game_snapshot(game, "owner")
         self.assertEqual(snapshot["humanColor"], "white")
         self.assertTrue(snapshot["canAbort"])
+        self.assertIsNone(snapshot["whiteAvatarUrl"])
+        self.assertIsNone(snapshot["blackAvatarUrl"])
         self.assertNotIn("enginePath", snapshot)
 
     def test_move_round_trip_to_pgn(self):

@@ -5,7 +5,7 @@ cd "$project_dir"
 python3 -m venv .venv
 .venv/bin/pip install -r backend/requirements.txt
 npm --prefix frontend install
-mkdir -p tools data/bots data/matches
+mkdir -p tools data/bots data/matches data/avatars
 if [[ ! -x tools/fastchess ]]; then
   tmp_dir="$(mktemp -d)"
   curl -fsSL https://github.com/Disservin/fastchess/releases/download/v1.8.2-alpha/fastchess-linux-x86-64.tar -o "$tmp_dir/fastchess.tar"
@@ -21,4 +21,3 @@ if [[ ! -x tools/stockfish ]]; then
   rm -r "$tmp_dir"
 fi
 echo "Setup complete. Run ./scripts/dev.sh"
-

@@ -1,19 +1,45 @@
-.admin-wide {
-  width: min(560px, calc(100vw - 30px));
-  max-height: calc(100vh - 70px);
-  overflow: auto;
-}
-.admin-row { display: flex; align-items: center; gap: 6px; border-top: 1px solid #eee; padding: 7px 0; }
-.admin-row span { flex: 1; font-size: 12px; }
-.admin-row button { font-size: 11px; padding: 6px !important; }
-.system-tag { background: #e8ddc3; color: #75571c; }
-.admin-actions { display: grid; gap: 7px; margin: 14px 0; }
+.admin-wide { width: min(580px, calc(100vw - 30px)); max-height: calc(100vh - 78px); overflow: auto; }
+.admin-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px dashed #56362e; }
+.admin-row span { flex: 1; color: #c9b5a6; font-size: 12px; }
+.admin-row button { padding: 6px 8px !important; font-size: 10px; }
+.admin-row > .bot-avatar { width: 34px; height: 34px; flex-basis: 34px; }
+.system-tag { color: #ffd486; border-color: #785521; background: #2f210c; }
+.admin-actions { display: grid; gap: 8px; margin: 15px 0; }
 .admin-actions button { width: 100%; }
-.admin-actions button:disabled { cursor: not-allowed; opacity: .55; }
-.rating-run { background: #f6f2e8; border: 1px solid #ddd4c3; border-radius: 5px; padding: 11px; margin: 12px 0; }
+.rating-run { margin: 13px 0; padding: 12px; border: 1px solid #58382f; background: #0a0707; }
 .rating-run > div:first-child { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; }
-.rating-run span,.rating-run small { color: #777066; display: block; margin-top: 5px; font-size: 10px; }
-.progress { height: 5px; background: #dfd8ca; border-radius: 5px; overflow: hidden; margin-top: 8px; }
-.progress i { display: block; height: 100%; background: #bc8424; transition: width .3s; }
-.rating-run.completed .progress i { background: #4d8a49; }
-.rating-run.failed { border-color: #dca9a1; }
+.rating-run span, .rating-run small { display: block; margin-top: 5px; color: #8e7b70; font-size: 10px; }
+.progress { height: 7px; margin-top: 9px; overflow: hidden; border: 1px solid #4d3029; background: #170e0d; }
+.progress i { display: block; height: 100%; background: linear-gradient(90deg, #8e150d, #ff6b20); box-shadow: 0 0 11px #ff4a20; transition: width .3s; }
+.rating-run.completed .progress i { background: linear-gradient(90deg, #326d2d, #86d36e); box-shadow: 0 0 10px #6ecc5a; }
+.rating-run.failed { border-color: #9b3326; }
+
+/* The admin booth should feel like the executioner's control room. */
+.admin-wide {
+  border: 3px double #a82618;
+  background:
+    linear-gradient(130deg, #080202f6, #180403e8),
+    url('/art/routes/admin.webp') 68% center / cover;
+  box-shadow: inset 0 0 60px #000, 0 15px 60px #000, 0 0 35px #ee2d185c;
+}
+.admin-wide::before {
+  content: "ADMINISTRATOR OF DEATH";
+  display: block;
+  margin: -7px 0 14px;
+  color: #ff3b20;
+  font: 25px "Metal Mania", fantasy;
+  letter-spacing: .06em;
+  text-align: center;
+  text-shadow: 0 0 12px #ff2b16;
+}
+.admin-row { border-top: 2px dashed #72170f; background: linear-gradient(90deg, #6e110d20, transparent); }
+.admin-row span { font-family: "New Rocker", fantasy; font-size: 14px; }
+.admin-actions { padding: 10px; border: 1px solid #762016; background: #110302c9; }
+.admin-actions::before { content: "\2620  TOTAL CONTROL  \2620"; color: #ff4a27; font: 18px "New Rocker", fantasy; text-align: center; text-shadow: 0 0 8px #ff2b16; }
+.rating-run { border-width: 2px; border-color: #761d14; background: #050202e8; box-shadow: inset 4px 0 #961e14; }
+html[data-effects="full"] .progress i { animation: none; }
+@keyframes rating-flame { 50% { filter: brightness(1.7) saturate(2); box-shadow: 0 0 21px #ff3b1b; } }
+
+@media (max-width: 700px) {
+  .admin-wide { background-image: linear-gradient(130deg, #080202f6, #180403e8), url('/art/routes/admin-mobile.webp'); }
+}

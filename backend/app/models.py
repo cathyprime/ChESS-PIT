@@ -12,6 +12,7 @@ class Bot(Base):
     __tablename__ = "bots"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    description: Mapped[str] = mapped_column(Text, default="", server_default="")
     binary_path: Mapped[str] = mapped_column(Text)
     sha256: Mapped[str] = mapped_column(String(64))
     owner_id: Mapped[str] = mapped_column(String(64), index=True)
@@ -26,6 +27,9 @@ class Bot(Base):
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     engine_kind: Mapped[str] = mapped_column(String(20), default="uploaded", index=True)
     stockfish_skill: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    avatar_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    avatar_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    avatar_style: Mapped[str] = mapped_column(String(20), default="mask")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
