@@ -1,0 +1,28 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: cbfc
+      POSTGRES_USER: cbfc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+  api:
+    build: {context: ., target: api}
+    environment:
+      DATABASE_URL: postgresql+psycopg://cbfc:${POSTGRES_PASSWORD}@db/cbfc
+      ARENA_PASSWORD: ${ARENA_PASSWORD:?set ARENA_PASSWORD}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
+      SECURE_COOKIES: "true"
+      STORAGE_DIR: /app/data
+      FASTCHESS_PATH: /app/tools/fastchess
+      STOCKFISH_PATH: /app/tools/stockfish
+    volumes: [arena-data:/app/data]
+    depends_on: [db]
+  web:
+    build: {context: ., target: web}
+    ports: ["127.0.0.1:8080:80"]
+    depends_on: [api]
+volumes:
+  postgres-data:
+  arena-data:

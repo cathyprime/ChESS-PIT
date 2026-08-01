@@ -1,0 +1,8 @@
+.admin-wide {
+  width: min(560px, calc(100vw - 30px));
+  max-height: calc(100vh - 70px);
+  overflow: auto;
+}
+.admin-row { display: flex; align-items: center; gap: 6px; border-top: 1px solid #eee; padding: 7px 0; }
+.admin-row span { flex: 1; font-size: 12px; }
+.admin-row button { font-size: 11px; padding: 6px !important; }

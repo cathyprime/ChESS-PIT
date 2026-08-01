@@ -1,0 +1,9 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+sqlalchemy==2.0.41
+python-multipart==0.0.20
+python-chess==1.999
+itsdangerous==2.2.0
+argon2-cffi==25.1.0
+psycopg[binary]==3.2.9
+
