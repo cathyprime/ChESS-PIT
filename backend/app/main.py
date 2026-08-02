@@ -34,7 +34,7 @@ from .avatars import (MAX_AVATAR_BYTES, STOCKFISH_VARIANTS, avatar_path_for, ava
 
 Base.metadata.create_all(engine)
 migrate_existing_database()
-app = FastAPI(title="DeathPit", version="0.1.0")
+app = FastAPI(title="ChESSPIT", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=[settings.frontend_origin], allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
 
@@ -62,7 +62,7 @@ class HumanMove(BaseModel): uci: str
 
 
 def cookie(response: Response, value: str):
-    response.set_cookie("deathpit_session", value, httponly=True, secure=settings.secure_cookies,
+    response.set_cookie("chesspit_session", value, httponly=True, secure=settings.secure_cookies,
                         samesite="lax", max_age=60 * 60 * 24 * 30)
 
 
@@ -97,7 +97,7 @@ def session(request: Request):
 
 @app.post("/api/auth/logout")
 def logout(response: Response):
-    response.delete_cookie("deathpit_session"); return {"ok": True}
+    response.delete_cookie("chesspit_session"); return {"ok": True}
 
 
 def bot_json(bot: Bot, owner: str | None = None):

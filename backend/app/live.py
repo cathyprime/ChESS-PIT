@@ -59,7 +59,7 @@ def board_from_moves(moves: list[dict]) -> chess.Board:
 def export_pgn(game: Game, moves: list[dict], board: chess.Board) -> str:
     record = chess.pgn.Game()
     record.headers.update({
-        "Event": "DeathPit",
+        "Event": "ChESSPIT",
         "White": game.white_name,
         "Black": game.black_name,
         "Result": game.result,

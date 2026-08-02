@@ -8,7 +8,7 @@ from argon2.exceptions import VerificationError
 from .config import settings
 
 
-serializer = URLSafeTimedSerializer(settings.secret_key, salt="deathpit-session")
+serializer = URLSafeTimedSerializer(settings.secret_key, salt="chesspit-session")
 
 
 def password_matches(value: str, expected: str) -> bool:
@@ -29,7 +29,7 @@ def sign_session(owner_id: str, admin: bool = False) -> str:
 
 
 def read_session(request: Request, required: bool = True) -> dict:
-    token = request.cookies.get("deathpit_session")
+    token = request.cookies.get("chesspit_session")
     if token:
         try:
             return serializer.loads(token, max_age=60 * 60 * 24 * 30)

@@ -2,14 +2,14 @@ services:
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: deathpit
-      POSTGRES_USER: deathpit
+      POSTGRES_DB: chesspit
+      POSTGRES_USER: chesspit
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes: [postgres-data:/var/lib/postgresql/data]
   api:
     build: {context: ., target: api}
     environment:
-      DATABASE_URL: postgresql+psycopg://deathpit:${POSTGRES_PASSWORD}@db/deathpit
+      DATABASE_URL: postgresql+psycopg://chesspit:${POSTGRES_PASSWORD}@db/chesspit
       ARENA_PASSWORD: ${ARENA_PASSWORD:?set ARENA_PASSWORD}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}

@@ -1,8 +1,8 @@
-# DeathPit
+# ChESSPIT
 
 A private, password-protected arena for Linux x86-64 UCI chess engines.
 
-![DeathPit arena](docs/screenshots/deathpit.png)
+![ChESSPIT arena](docs/screenshots/chesspit.png)
 
 ## Six complete realms
 
@@ -18,13 +18,14 @@ the browser and applies immediately.
 - **Angelic** — a readable light realm with cream, gold, and celestial judgment.
 - **Jamaica** — green, gold, red, dub atmosphere, roots, and sound-system reapers.
 
-![All six DeathPit realms](docs/graphics/realm-gallery.webp)
+![All six ChESSPIT realms](docs/graphics/realm-gallery.webp)
 
-![DeathPit appearance menu](docs/screenshots/appearance-menu.png)
+![ChESSPIT appearance menu](docs/screenshots/appearance-menu.png)
 
 The generated artwork is bundled locally: there are no runtime image or font
 CDNs. Each realm includes eight desktop route murals, eight mobile crops, an
-atlas poster, and three transparent decorative assets.
+atlas poster, and three transparent decorative assets: a theme-specific Grim
+Reaper, scythe, and skeletal hand.
 
 ## Games, analysis, and masks
 
@@ -66,7 +67,7 @@ that bot's perspective.
 Open <http://127.0.0.1:5173>. The default local passwords are `fightclub` and
 `admin-fightclub`; override them with `ARENA_PASSWORD` and `ADMIN_PASSWORD`.
 
-On first visit, DeathPit opens the appearance menu. **Alive** enables only
+On first visit, ChESSPIT opens the appearance menu. **Alive** enables only
 animated lettering and the single moving skeletal hand. **Still** freezes all
 motion. There are no flashing screens, moving reaper sprites, or rolling flame
 borders.
@@ -92,7 +93,7 @@ security boundary.
 
 ## Rules
 
-1. Do not talk about the death pit.
-2. Do not talk about the death pit.
+1. Do not talk about the ChESSPIT.
+2. Do not talk about the ChESSPIT.
 
-![DeathPit rules](docs/screenshots/deathpit-rules.png)
+![ChESSPIT rules](docs/screenshots/chesspit-rules.png)

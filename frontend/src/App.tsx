@@ -29,8 +29,8 @@ import "./live.css";
 import "./themes.css";
 
 type EffectMode = "unset" | "full" | "static";
-const EFFECTS_KEY = "deathpit-effects";
-const SITE_NAME = "DeathPit";
+const EFFECTS_KEY = "chesspit-effects";
+const SITE_NAME = "ChESSPIT";
 function savedEffects(): EffectMode {
   const value = localStorage.getItem(EFFECTS_KEY);
   return value === "full" || value === "static" ? value : "unset";
@@ -46,7 +46,7 @@ function ThemeDecor() {
       />
       <img
         className="invader scythe-invader"
-        src={themeArt(theme.id, "decor", "emblem")}
+        src={themeArt(theme.id, "decor", "scythe")}
         alt=""
       />
       <img
@@ -91,7 +91,7 @@ function AppearanceMenu({
           </button>
         )}
         <span className="warning-skull">{theme.symbol}</span>
-        <span className="eyebrow">DEATHPIT APPEARANCE</span>
+        <span className="eyebrow">ChESSPIT APPEARANCE</span>
         <h1 id="appearance-title">Choose your underworld</h1>
         <p>
           Every realm changes the arena art, language, benchmark masks, and
@@ -221,7 +221,7 @@ function Header({ bots, refresh }: { bots: Bot[]; refresh: () => void }) {
       <div
         className="site-banner"
         role="img"
-        aria-label={`${theme.label} DeathPit chess arena banner`}
+        aria-label={`${theme.label} ChESSPIT chess arena banner`}
       >
         <div>
           <strong>{SITE_NAME}</strong>
@@ -241,8 +241,8 @@ function RulesPage() {
       <div className="rules-card">
         <span className="rule-skull">{theme.symbol}</span>
         <ol>
-          <li>Do not talk about the death pit.</li>
-          <li>Do not talk about the death pit.</li>
+          <li>Do not talk about the ChESSPIT.</li>
+          <li>Do not talk about the ChESSPIT.</li>
         </ol>
         <p>{theme.copy.rules.footer}</p>
       </div>
@@ -258,6 +258,12 @@ function Leaderboard({ bots }: { bots: Bot[] }) {
   let rank = 0;
   return (
     <section className="leaderboard-section">
+      <img
+        className="arena-corner-art arena-reaper-art"
+        src={themeArt(theme.id, "decor", "reaper")}
+        alt=""
+        aria-hidden="true"
+      />
       <div className="table-wrap">
         <div className="leaderboard-head">
           <div className="leaderboard-heading">
@@ -413,6 +419,12 @@ function Dashboard({ bots, refresh }: { bots: Bot[]; refresh: () => void }) {
         </section>
         <aside className="arena-actions">
           <Link className="action-card showdown" to="/showdown">
+            <img
+              className="arena-corner-art arena-scythe-art"
+              src={themeArt(theme.id, "decor", "scythe")}
+              alt=""
+              aria-hidden="true"
+            />
             <span>{actions.showdown.eyebrow}</span>
             <h2>{actions.showdown.title}</h2>
             <p>{actions.showdown.body}</p>
@@ -1750,8 +1762,8 @@ export default function App() {
       {logged ? <AuthenticatedApp /> : <Login done={() => setLogged(true)} />}
       <button
         className="effects-fab"
-        aria-label="Change DeathPit appearance"
-        title="Change DeathPit appearance"
+        aria-label="Change ChESSPIT appearance"
+        title="Change ChESSPIT appearance"
         onClick={() => setAppearanceOpen(true)}
       >
         {theme.symbol} <span>LOOK</span>

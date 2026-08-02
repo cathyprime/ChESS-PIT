@@ -132,7 +132,7 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
           enter: "Enter the pit",
         },
         rules: {
-          eyebrow: "THE DEATHPIT CODEX",
+          eyebrow: "THE ChESSPIT CODEX",
           title: "Pit Law",
           footer: "Keep the arena private. Let the board speak.",
         },
@@ -191,7 +191,7 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
           abort: "Abort showdown",
           thinking: "Engine thinking…",
         },
-        footer: "DeathPit · private inferno",
+        footer: "ChESSPIT · private inferno",
       },
       "The original red furnace: iron, fire, and judgment.",
     ),
@@ -286,7 +286,7 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
           abort: "End the heartbreak",
           thinking: "The machine is brooding…",
         },
-        footer: "DeathPit · every engine breaks eventually",
+        footer: "ChESSPIT · every engine breaks eventually",
       },
       "Black, blue, rainy, romantic, and terminally overthinking.",
     ),
@@ -383,7 +383,7 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
           abort: "Call it off",
           thinking: "The engine is making moves…",
         },
-        footer: "DeathPit · run the board · own the block",
+        footer: "ChESSPIT · run the board · own the block",
       },
       "Street-poster energy without real gangs, weapons, or caricatures.",
     ),
@@ -463,7 +463,7 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
           uploadEyebrow: "NEW EXECUTABLE",
           uploadBody:
             "Upload a Linux x86-64 UCI binary, document it, and assign a transparent process mask.",
-          uploadButton: "Deploy to DeathPit",
+          uploadButton: "Deploy to ChESSPIT",
           admin: "Root console",
           analysis: "STOCKFISH DEBUGGER",
         },
@@ -479,7 +479,7 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
           abort: "Cancel job",
           thinking: "Process is computing…",
         },
-        footer: "DeathPit · brewed in Mocha · compiled without mercy",
+        footer: "ChESSPIT · brewed in Mocha · compiled without mercy",
       },
       "An accurate Catppuccin Mocha coding dungeon.",
     ),
@@ -575,7 +575,7 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
           abort: "Dismiss judgment",
           thinking: "The seraph is deliberating…",
         },
-        footer: "DeathPit · judgment descends one move at a time",
+        footer: "ChESSPIT · judgment descends one move at a time",
       },
       "A readable light theme with luminous reapers and golden chess halls.",
     ),
@@ -671,14 +671,14 @@ export const THEMES: Record<ThemeId, ThemeDefinition> = {
           abort: "Stop the session",
           thinking: "The engine is finding the riddim…",
         },
-        footer: "DeathPit · one board · one love · no blunders",
+        footer: "ChESSPIT · one board · one love · no blunders",
       },
       "Reggae sound-system fantasy with leaf motifs and no human stereotypes.",
     ),
   },
 };
 
-const THEME_KEY = "deathpit-theme";
+const THEME_KEY = "chesspit-theme";
 type ThemeContextValue = {
   theme: ThemeDefinition;
   setTheme: (theme: ThemeId) => void;

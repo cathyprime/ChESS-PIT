@@ -21,7 +21,7 @@ services or credentials on the match host.
 - Terminate TLS at Caddy and expose only ports 80/443. Do not expose PostgreSQL.
 - Install gVisor/runsc and set `RUNNER_MODE=gvisor` before enabling uploads.
 - Build the minimal engine runtime with
-  `podman build --target engine-runtime -t deathpit-engine-runtime:latest .`.
+  `podman build --target engine-runtime -t chesspit-engine-runtime:latest .`.
 - Run API and match runner as separate unprivileged users. Only the runner may
   access the container runtime and binary storage.
 

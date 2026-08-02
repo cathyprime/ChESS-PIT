@@ -102,7 +102,7 @@ export function ArenaBoard({
     ],
   );
   const options: ChessboardOptions = {
-    id: "deathpit-board",
+    id: "chesspit-board",
     position: fen,
     boardOrientation: orientation,
     showNotation: true,

@@ -8,7 +8,7 @@ for raw in sys.stdin:
     if not parts:
         continue
     if parts[0] == "uci":
-        print("id name DeathPit Random Fixture\nid author DeathPit\nuciok", flush=True)
+        print("id name ChESSPIT Random Fixture\nid author ChESSPIT\nuciok", flush=True)
     elif parts[0] == "isready":
         print("readyok", flush=True)
     elif parts[0] == "ucinewgame":
