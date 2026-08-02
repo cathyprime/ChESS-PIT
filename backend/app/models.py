@@ -15,6 +15,7 @@ class Bot(Base):
     description: Mapped[str] = mapped_column(Text, default="", server_default="")
     binary_path: Mapped[str] = mapped_column(Text)
     sha256: Mapped[str] = mapped_column(String(64))
+    binary_size: Mapped[int] = mapped_column(Integer, default=0)
     owner_id: Mapped[str] = mapped_column(String(64), index=True)
     recovery_hash: Mapped[str] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(20), default="validating", index=True)

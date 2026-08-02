@@ -386,8 +386,13 @@ main[class*="route-"]::after {
 .reaper-invader { left: -150px; bottom: -120px; width: min(28vw, 350px); transform: rotate(2deg); animation: none; }
 .scythe-invader { right: -170px; top: 8vh; width: min(31vw, 410px); transform: rotate(-8deg); animation: none; }
 .hand-invader { left: 52%; top: -250px; width: min(28vw, 350px); opacity: .48; animation: hand-grab 3.7s steps(4) infinite; }
-body:has(.route-arena) .reaper-invader,
-body:has(.route-arena) .scythe-invader { display: none; }
+body:has(.route-arena) .reaper-invader { display: none; }
+body:has(.route-arena) .scythe-invader {
+  top: 150px;
+  right: -170px;
+  width: min(31vw, 410px);
+  opacity: .78;
+}
 
 .effects-warning { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: radial-gradient(circle, #300603 0, #020101 64%); }
 .effects-warning::before { content: ""; position: absolute; inset: 0; opacity: .28; background: url('/art/routes/live-game.webp') center / cover; }
@@ -651,14 +656,6 @@ html[data-effects="full"] .hand-invader { animation: hand-grab 3.7s steps(4) inf
   gap: 14px;
   padding: 32px 38px;
 }
-.arena-actions .arena-scythe-art {
-  z-index: 0;
-  top: -54px;
-  right: -215px;
-  width: 340px;
-  opacity: .82;
-  transform: none;
-}
 .arena-actions .action-card > span { line-height: 1.35; }
 .arena-actions .action-card h2 {
   width: 100%;
@@ -701,7 +698,6 @@ html[data-effects="full"] .hand-invader { animation: hand-grab 3.7s steps(4) inf
   }
   .arena-actions .action-card h2 { font-size: clamp(36px, 5vw, 48px); }
   .arena-actions .action-card p { font-size: 16px; }
-  .arena-actions .arena-scythe-art { top: -38px; right: -200px; width: 310px; }
 }
 
 @media (max-width: 700px) {
@@ -726,5 +722,5 @@ html[data-effects="full"] .hand-invader { animation: hand-grab 3.7s steps(4) inf
   .arena-actions .action-card p { font-size: 15px; line-height: 1.4; }
   .arena-actions .action-card b { font-size: 18px; }
   .arena-reaper-art { left: -185px; bottom: -65px; width: 235px; opacity: .55; }
-  .arena-actions .arena-scythe-art { top: 5px; right: -195px; width: 245px; opacity: .55; }
+  body:has(.route-arena) .scythe-invader { top: 112px; right: -48vw; width: 62vw; opacity: .5; }
 }

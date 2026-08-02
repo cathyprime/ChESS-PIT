@@ -160,7 +160,7 @@ function AppearanceMenu({
 
 function Login({ done }: { done: () => void }) {
   const { theme } = useTheme();
-  const [password, setPassword] = useState("fightclub");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   return (
     <main className="login">
@@ -419,12 +419,6 @@ function Dashboard({ bots, refresh }: { bots: Bot[]; refresh: () => void }) {
         </section>
         <aside className="arena-actions">
           <Link className="action-card showdown" to="/showdown">
-            <img
-              className="arena-corner-art arena-scythe-art"
-              src={themeArt(theme.id, "decor", "scythe")}
-              alt=""
-              aria-hidden="true"
-            />
             <span>{actions.showdown.eyebrow}</span>
             <h2>{actions.showdown.title}</h2>
             <p>{actions.showdown.body}</p>
@@ -1423,7 +1417,7 @@ function Upload({ refresh }: { refresh: () => void }) {
 function Admin({ refresh, bots }: { refresh: () => void; bots: Bot[] }) {
   const { theme } = useTheme();
   const [open, setOpen] = useState(false);
-  const [pw, setPw] = useState("admin-fightclub");
+  const [pw, setPw] = useState("");
   const [settings, setSettings] = useState<any>();
   const [run, setRun] = useState<RatingRun>();
   const [busy, setBusy] = useState("");

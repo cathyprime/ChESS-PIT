@@ -6,6 +6,9 @@ import resource
 import subprocess
 import threading
 import secrets
+import socket
+import stat
+import logging
 from pathlib import Path
 import chess
 import chess.engine
@@ -18,6 +21,7 @@ from .models import Bot, Game, RatingEvent, ArenaSetting, RatingRun, now
 
 STOCKFISH_LEVELS = (1, 2, 3, 5, 8, 13, 20)
 _rating_lock = threading.Lock()
+logger = logging.getLogger(__name__)
 
 
 def _limits():
@@ -27,15 +31,35 @@ def _limits():
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
 
-def engine_argv(path: str, trusted: bool = False) -> list[str]:
-    if trusted or settings.runner_mode == "local":
+def sandbox_ready() -> bool:
+    if settings.runner_mode != "socket":
+        return False
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(1)
+            client.connect(settings.runner_socket)
+            client.sendall(b'{"version":1,"op":"health"}\n')
+            return b'"ok":true' in client.recv(256)
+    except OSError:
+        return False
+
+
+def engine_argv(path: str, sha256: str = "", trusted: bool = False,
+                purpose: str = "live") -> list[str]:
+    if trusted:
         return [path]
-    return [settings.runner_wrapper, path]
+    if settings.runner_mode != "socket":
+        raise RuntimeError("Uploaded-engine sandbox is unavailable")
+    key = Path(path).name
+    if not sha256:
+        raise RuntimeError("Uploaded engine has no verified digest")
+    return [settings.runner_wrapper, purpose, key, sha256]
 
 
-def engine_options(path: str, name: str, trusted: bool = False,
+def engine_options(path: str, name: str, trusted: bool = False, sha256: str = "",
+                   purpose: str = "rated",
                    uci_options: dict[str, str | int] | None = None) -> list[str]:
-    argv = engine_argv(path, trusted)
+    argv = engine_argv(path, sha256, trusted, purpose)
     values = ["-engine", f"cmd={argv[0]}", f"name={name}"]
     values.extend(f"arg={arg}" for arg in argv[1:])
     values.extend(f"option.{key}={value}" for key, value in (uci_options or {}).items())
@@ -46,7 +70,7 @@ def options_for_bot(bot: Bot) -> list[str]:
     if bot.engine_kind == "stockfish":
         return engine_options(settings.stockfish_path, bot.name, trusted=True,
                               uci_options={"Skill Level": int(bot.stockfish_skill or 0)})
-    return engine_options(bot.binary_path, bot.name)
+    return engine_options(bot.binary_path, bot.name, sha256=bot.sha256)
 
 
 def stockfish_description(skill: int) -> str:
@@ -91,9 +115,33 @@ def ensure_stockfish_bots():
         db.commit()
 
 
-def validate_uci(path: str) -> tuple[bool, str | None]:
+def audit_uploaded_bots():
+    """Backfill sizes and quarantine storage rows that cannot be trusted."""
+    root = (settings.storage_dir / "bots").resolve()
+    with SessionLocal() as db:
+        for bot in db.scalars(select(Bot).where(Bot.engine_kind == "uploaded", Bot.status != "retired")):
+            path = Path(bot.binary_path)
+            try:
+                info = path.lstat()
+                valid_path = path.parent.resolve() == root and not path.is_symlink() and stat.S_ISREG(info.st_mode)
+                if not valid_path or info.st_size > 50 * 1024 * 1024:
+                    raise ValueError("unsafe stored binary")
+                import hashlib
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                if digest != bot.sha256:
+                    raise ValueError("stored binary digest mismatch")
+                bot.binary_size = info.st_size
+                path.chmod(0o540)
+            except (OSError, ValueError):
+                bot.status = "rejected"
+                bot.failure_reason = "Stored executable failed the security audit"
+                bot.binary_size = 0
+        db.commit()
+
+
+def validate_uci(path: str, sha256: str) -> tuple[bool, str | None]:
     try:
-        proc = subprocess.Popen(engine_argv(path), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        proc = subprocess.Popen(engine_argv(path, sha256, purpose="validate"), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT, text=True, preexec_fn=_limits)
         out, _ = proc.communicate("uci\nquit\n", timeout=10)
         if "uciok" not in out:
@@ -103,7 +151,8 @@ def validate_uci(path: str) -> tuple[bool, str | None]:
         proc.kill()
         return False, "UCI handshake timed out"
     except Exception as exc:
-        return False, f"Could not run executable: {exc}"
+        logger.warning("Sandboxed UCI validation failed", exc_info=exc)
+        return False, "Sandboxed executable could not complete validation"
 
 
 def qualify_bot(bot_id: int):
@@ -112,7 +161,7 @@ def qualify_bot(bot_id: int):
             bot = db.get(Bot, bot_id)
             if not bot:
                 return
-            ok, reason = validate_uci(bot.binary_path)
+            ok, reason = validate_uci(bot.binary_path, bot.sha256)
             if not ok:
                 bot.status, bot.failure_reason = "rejected", reason
                 db.commit()
@@ -132,10 +181,11 @@ def qualify_bot(bot_id: int):
                         bot.qualification_done += played
                         db.commit()
         except Exception as exc:
+            logger.exception("Sandboxed qualification failed for bot %s", bot_id)
             with SessionLocal() as db:
                 bot = db.get(Bot, bot_id)
                 if bot:
-                    bot.status, bot.failure_reason = "rejected", f"Match runner failed: {exc}"
+                    bot.status, bot.failure_reason = "rejected", "Sandboxed qualification match failed"
                     db.commit()
             return
         with SessionLocal() as db:
@@ -159,7 +209,8 @@ def run_pairing(first_id: int, second_id: int, count: int | None = None) -> int:
         command = [settings.fastchess_path, *options_for_bot(first), *options_for_bot(second), "-each", f"tc={tc}",
                    "proto=uci", "-rounds", str(max(1, count // 2)), "-repeat", "-games", "2",
                    "-concurrency", "1", "-pgnout", f"file={out_path}", "-recover"]
-    subprocess.run(command, timeout=max(120, count * 120), check=True, capture_output=True, text=True)
+    subprocess.run(command, timeout=max(120, count * 120), check=True,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
     return import_pgn(out_path, "rated", first.id, second.id, tc)
 
 
@@ -299,10 +350,11 @@ def _rating_run_worker(run_id: int):
                 run.status, run.current_pairing, run.completed_at = "completed", None, now()
                 db.commit()
         except Exception as exc:
+            logger.exception("Rating run %s failed", run_id)
             with SessionLocal() as db:
                 run = db.get(RatingRun, run_id)
                 if run:
-                    run.status, run.error, run.completed_at = "failed", str(exc), now()
+                    run.status, run.error, run.completed_at = "failed", "Sandboxed rating match failed", now()
                     db.commit()
 
 

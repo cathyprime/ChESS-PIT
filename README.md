@@ -72,9 +72,9 @@ animated lettering and the single moving skeletal hand. **Still** freezes all
 motion. There are no flashing screens, moving reaper sprites, or rolling flame
 borders.
 
-Uploaded executables are untrusted. Local mode uses process resource limits and
-is intended only for binaries you trust. Production must set `RUNNER_MODE=podman`
-or `RUNNER_MODE=gvisor` on a dedicated Linux VPS.
+Uploaded executables are untrusted. They are disabled by default and are never
+run directly by the API. Production uses the permissioned host runner socket,
+rootless Podman, and gVisor; see the deployment guide before enabling uploads.
 
 ## Deployment
 

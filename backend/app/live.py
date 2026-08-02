@@ -4,6 +4,7 @@ import io
 import json
 import threading
 import time
+import logging
 from datetime import datetime, timezone
 
 import chess
@@ -19,6 +20,7 @@ from .avatars import avatar_style_for_bot, avatar_url
 
 
 START_FEN = chess.STARTING_FEN
+logger = logging.getLogger(__name__)
 
 
 def utcnow():
@@ -118,16 +120,22 @@ class LiveGameManager:
         self._analysis: set[int] = set()
         self._analysis_slot = threading.Semaphore(1)
         self._viewers: dict[int, int] = {}
+        self._viewer_sessions: dict[str, int] = {}
         self._focus: dict[int, int] = {}
 
-    def viewer_joined(self, game_id: int):
+    def viewer_joined(self, game_id: int, owner_id: str) -> bool:
         with self._lock:
+            if sum(self._viewers.values()) >= 50 or self._viewer_sessions.get(owner_id, 0) >= 3:
+                return False
             self._viewers[game_id] = self._viewers.get(game_id, 0) + 1
+            self._viewer_sessions[owner_id] = self._viewer_sessions.get(owner_id, 0) + 1
         self.ensure_analysis(game_id)
+        return True
 
-    def viewer_left(self, game_id: int):
+    def viewer_left(self, game_id: int, owner_id: str):
         with self._lock:
             self._viewers[game_id] = max(0, self._viewers.get(game_id, 1) - 1)
+            self._viewer_sessions[owner_id] = max(0, self._viewer_sessions.get(owner_id, 1) - 1)
 
     def set_focus(self, game_id: int, ply: int):
         with self._lock:
@@ -190,11 +198,12 @@ class LiveGameManager:
                         black_inc=increment,
                     ))
                 except (chess.engine.EngineError, chess.engine.EngineTerminatedError) as exc:
+                    logger.warning("Engine process failed in game %s", game_id, exc_info=exc)
                     with SessionLocal() as db:
                         game = db.get(Game, game_id)
                         game.result = "0-1" if board.turn else "1-0"
                         game.termination = "engine failure"
-                        game.status, game.error, game.completed_at = "completed", str(exc), utcnow()
+                        game.status, game.error, game.completed_at = "completed", "Engine process failed", utcnow()
                         game.pgn = export_pgn(game, moves, board)
                         db.commit()
                     return
@@ -237,10 +246,11 @@ class LiveGameManager:
                 game.pgn = export_pgn(game, moves, board)
                 db.commit()
         except Exception as exc:
+            logger.exception("Live showdown %s failed", game_id)
             with SessionLocal() as db:
                 game = db.get(Game, game_id)
                 if game and game.status != "aborted":
-                    game.status, game.error, game.completed_at = "failed", str(exc), utcnow()
+                    game.status, game.error, game.completed_at = "failed", "Sandboxed game failed", utcnow()
                     db.commit()
         finally:
             for engine in (white_engine, black_engine):
@@ -251,8 +261,15 @@ class LiveGameManager:
                         pass
 
     def _engine_command(self, config: dict):
-        path = config["path"]
-        return [path] if config.get("trusted") else engine_argv(path)
+        if config.get("kind") == "stockfish" or config.get("stockfish"):
+            return [settings.stockfish_path]
+        if config.get("kind") not in (None, "uploaded") or not config.get("botId"):
+            raise RuntimeError("Invalid stored engine configuration")
+        with SessionLocal() as db:
+            bot = db.get(Bot, int(config["botId"]))
+            if not bot or bot.engine_kind != "uploaded" or bot.status not in ("active", "qualifying"):
+                raise RuntimeError("Uploaded engine is no longer available")
+            return engine_argv(bot.binary_path, bot.sha256, purpose="live")
 
     def start_human_engine_turn(self, game_id: int):
         with self._lock:
@@ -302,13 +319,14 @@ class LiveGameManager:
                 db.commit()
             self.ensure_analysis(game_id)
         except Exception as exc:
+            logger.exception("Human engine turn failed for game %s", game_id)
             with SessionLocal() as db:
                 game = db.get(Game, game_id)
                 if game:
                     config = parse_json(game.engine_config_json, {})
                     game.result = "1-0" if config.get("humanColor") == "white" else "0-1"
                     game.status, game.termination = "completed", "engine failure"
-                    game.error, game.completed_at = str(exc), utcnow()
+                    game.error, game.completed_at = "Engine process failed", utcnow()
                     db.commit()
         finally:
             if engine:
@@ -336,54 +354,57 @@ class LiveGameManager:
     def _analyse_while_viewed(self, game_id: int):
         engine = None
         try:
-            engine = chess.engine.SimpleEngine.popen_uci(settings.stockfish_path)
-            while self.has_viewers(game_id):
-                with SessionLocal() as db:
-                    game = db.get(Game, game_id)
-                    if not game:
-                        return
-                    moves = moves_for_game(game)
-                    analysis = parse_json(game.analysis_json, [])
-                    if len(analysis) < len(moves):
-                        analysis.extend([None] * (len(moves) - len(analysis)))
-                    missing = [index for index in range(len(moves)) if analysis[index] is None]
-                    if not missing:
-                        time.sleep(.2)
-                        continue
-                    focus = self._focus.get(game_id, len(moves) - 1)
-                    index = min(missing, key=lambda value: abs(value - focus))
-                    fen = moves[index]["fen"]
-                    live = game.status == "running" and index == len(moves) - 1
-                board = chess.Board(fen)
-                with self._analysis_slot:
-                    info = engine.analyse(board, chess.engine.Limit(time=.15) if live else chess.engine.Limit(depth=12))
-                score = info["score"].pov(chess.WHITE)
-                pv_board, pv_san = board.copy(), []
-                for move in info.get("pv", [])[:8]:
-                    if move not in pv_board.legal_moves:
-                        break
-                    pv_san.append(pv_board.san(move)); pv_board.push(move)
-                entry = {
-                    "eval": round((score.score(mate_score=100000) or 0) / 100, 2),
-                    "mate": score.mate(),
-                    "best": info.get("pv", [None])[0].uci() if info.get("pv") else None,
-                    "pv": pv_san,
-                    "depth": info.get("depth"),
-                }
-                with SessionLocal() as db:
-                    game = db.get(Game, game_id)
-                    current = parse_json(game.analysis_json, [])
-                    if len(current) < len(moves):
-                        current.extend([None] * (len(moves) - len(current)))
-                    current[index] = entry
-                    game.analysis_json = json.dumps(current)
-                    db.commit()
+            with self._analysis_slot:
+                engine = chess.engine.SimpleEngine.popen_uci(settings.stockfish_path)
+                while self.has_viewers(game_id):
+                    self._analyse_next_position(game_id, engine)
         finally:
             if engine:
                 try:
                     engine.quit()
                 except Exception:
                     pass
+
+    def _analyse_next_position(self, game_id: int, engine):
+        with SessionLocal() as db:
+            game = db.get(Game, game_id)
+            if not game:
+                return
+            moves = moves_for_game(game)
+            analysis = parse_json(game.analysis_json, [])
+            if len(analysis) < len(moves):
+                analysis.extend([None] * (len(moves) - len(analysis)))
+            missing = [index for index in range(len(moves)) if analysis[index] is None]
+            if not missing:
+                time.sleep(.2)
+                return
+            focus = self._focus.get(game_id, len(moves) - 1)
+            index = min(missing, key=lambda value: abs(value - focus))
+            fen = moves[index]["fen"]
+            live = game.status == "running" and index == len(moves) - 1
+        board = chess.Board(fen)
+        info = engine.analyse(board, chess.engine.Limit(time=.15) if live else chess.engine.Limit(depth=12))
+        score = info["score"].pov(chess.WHITE)
+        pv_board, pv_san = board.copy(), []
+        for move in info.get("pv", [])[:8]:
+            if move not in pv_board.legal_moves:
+                break
+            pv_san.append(pv_board.san(move)); pv_board.push(move)
+        entry = {
+            "eval": round((score.score(mate_score=100000) or 0) / 100, 2),
+            "mate": score.mate(),
+            "best": info.get("pv", [None])[0].uci() if info.get("pv") else None,
+            "pv": pv_san,
+            "depth": info.get("depth"),
+        }
+        with SessionLocal() as db:
+            game = db.get(Game, game_id)
+            current = parse_json(game.analysis_json, [])
+            if len(current) < len(moves):
+                current.extend([None] * (len(moves) - len(current)))
+            current[index] = entry
+            game.analysis_json = json.dumps(current)
+            db.commit()
 
     def resume(self):
         with SessionLocal() as db:

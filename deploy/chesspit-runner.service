@@ -1,0 +1,38 @@
+[Unit]
+Description=ChESSPIT hostile engine sandbox runner
+After=network.target
+
+[Service]
+Type=simple
+User=chesspit-runner
+Group=chesspit
+RuntimeDirectory=chesspit-runner
+RuntimeDirectoryMode=0750
+StateDirectory=chesspit-runner
+UMask=0027
+Environment=RUNNER_SOCKET=/run/chesspit-runner/runner.sock
+Environment=BOT_STORAGE_DIR=/var/lib/chesspit/bots
+Environment=RUNNER_CACHE_DIR=/var/lib/chesspit-runner/cache
+Environment=HOME=/var/lib/chesspit-runner
+Environment=XDG_DATA_HOME=/var/lib/chesspit-runner/containers
+Environment=XDG_RUNTIME_DIR=/run/chesspit-runner
+Environment=ENGINE_IMAGE=localhost/chesspit-engine-runtime:latest
+Environment=ENGINE_RUNTIME=runsc
+Environment=MAX_CONCURRENT_ENGINES=4
+ExecStart=/usr/bin/python3 /opt/chesspit/scripts/runner-daemon.py
+Restart=on-failure
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+ReadOnlyPaths=/var/lib/chesspit/bots
+ReadWritePaths=/run/chesspit-runner /var/lib/chesspit-runner
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

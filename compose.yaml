@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     environment:
       POSTGRES_DB: chesspit
       POSTGRES_USER: chesspit
@@ -9,15 +9,27 @@ services:
   api:
     build: {context: ., target: api}
     environment:
+      ENVIRONMENT: production
       DATABASE_URL: postgresql+psycopg://chesspit:${POSTGRES_PASSWORD}@db/chesspit
-      ARENA_PASSWORD: ${ARENA_PASSWORD:?set ARENA_PASSWORD}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD}
+      ARENA_PASSWORD_HASH: ${ARENA_PASSWORD_HASH:?set ARENA_PASSWORD_HASH}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?set ADMIN_PASSWORD_HASH}
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
       SECURE_COOKIES: "true"
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?set FRONTEND_ORIGIN}
       STORAGE_DIR: /app/data
       FASTCHESS_PATH: /app/tools/fastchess
       STOCKFISH_PATH: /app/tools/stockfish
-    volumes: [arena-data:/app/data]
+      RUNNER_MODE: socket
+      RUNNER_SOCKET: /run/chesspit-runner/runner.sock
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:?set TRUSTED_PROXIES}
+    volumes:
+      - ${CHESSPIT_DATA_DIR:?set CHESSPIT_DATA_DIR}:/app/data
+      - /run/chesspit-runner/runner.sock:/run/chesspit-runner/runner.sock
+    read_only: true
+    tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=32m]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
     depends_on: [db]
   web:
     build: {context: ., target: web}
@@ -25,4 +37,3 @@ services:
     depends_on: [api]
 volumes:
   postgres-data:
-  arena-data:

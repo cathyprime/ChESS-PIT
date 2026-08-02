@@ -72,6 +72,7 @@ def migrate_existing_database():
                 "avatar_path": "TEXT",
                 "avatar_sha256": "VARCHAR(64)",
                 "avatar_style": "VARCHAR(20) DEFAULT 'legacy' NOT NULL",
+                "binary_size": "INTEGER DEFAULT 0 NOT NULL",
             }
             for name, definition in bot_additions.items():
                 if name not in bot_existing:

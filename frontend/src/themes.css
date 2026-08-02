@@ -276,10 +276,6 @@ html[data-theme] .action-card > * {
   position: relative;
   z-index: 1;
 }
-html[data-theme] .action-card > .arena-scythe-art {
-  position: absolute;
-  z-index: 0;
-}
 html[data-theme] .action-card::after {
   display: none;
 }

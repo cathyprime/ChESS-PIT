@@ -34,7 +34,7 @@ def validate_avatar(data: bytes) -> tuple[bytes, str]:
                 raise ValueError("Animated PNG avatars are not supported")
             image.load()
             canonical = image.convert("RGBA")
-            transparent = sum(alpha == 0 for alpha in canonical.getchannel("A").getdata())
+            transparent = canonical.getchannel("A").tobytes().count(b"\0")
             if transparent < MIN_TRANSPARENT_PIXELS:
                 raise ValueError("Mask must have a transparent background (at least 10% fully transparent pixels)")
     except (UnidentifiedImageError, OSError) as exc:
