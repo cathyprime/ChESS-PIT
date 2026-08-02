@@ -16,6 +16,7 @@ AVATAR_SIZE = (128, 128)
 MIN_TRANSPARENT_PIXELS = int(AVATAR_SIZE[0] * AVATAR_SIZE[1] * .10)
 ASSET_DIR = Path(__file__).with_name("assets") / "avatars"
 STOCKFISH_VARIANTS = {"1", "2", "3", "5", "8", "13", "20", "full"}
+AVATAR_THEMES = {"inferno", "emo", "gangsta", "catppuccin", "angelic", "jamaica"}
 
 
 def validate_avatar(data: bytes) -> tuple[bytes, str]:
@@ -62,18 +63,20 @@ def remove_stored_avatar(path: str | None):
         pass
 
 
-def stockfish_asset(variant: str | int | None) -> Path:
+def stockfish_asset(variant: str | int | None, theme: str = "inferno") -> Path:
     value = str(variant if variant is not None else "full")
     if value not in STOCKFISH_VARIANTS:
         value = "full"
-    return ASSET_DIR / f"stockfish-{value}.png"
+    safe_theme = theme if theme in AVATAR_THEMES else "inferno"
+    themed = ASSET_DIR / safe_theme / f"stockfish-{value}.png"
+    return themed if themed.is_file() else ASSET_DIR / f"stockfish-{value}.png"
 
 
-def avatar_path_for(bot: Bot) -> Path:
+def avatar_path_for(bot: Bot, theme: str = "inferno") -> Path:
     if bot.avatar_path and Path(bot.avatar_path).is_file():
         return Path(bot.avatar_path)
     if bot.engine_kind == "stockfish":
-        return stockfish_asset(bot.stockfish_skill)
+        return stockfish_asset(bot.stockfish_skill, theme)
     return ASSET_DIR / "default-bot.png"
 
 

@@ -117,18 +117,18 @@ def png_response(path: Path):
 
 
 @app.get("/api/avatars/stockfish/{variant}")
-def stockfish_avatar(variant: str, request: Request):
+def stockfish_avatar(variant: str, request: Request, theme: str = "inferno"):
     read_session(request)
     if variant not in STOCKFISH_VARIANTS: raise HTTPException(404, "Avatar not found")
-    return png_response(stockfish_asset(variant))
+    return png_response(stockfish_asset(variant, theme))
 
 
 @app.get("/api/bots/{bot_id}/avatar")
-def bot_avatar(bot_id: int, request: Request, db: Session = Depends(get_db)):
+def bot_avatar(bot_id: int, request: Request, theme: str = "inferno", db: Session = Depends(get_db)):
     read_session(request)
     bot = db.get(Bot, bot_id)
     if not bot: raise HTTPException(404, "Bot not found")
-    return png_response(avatar_path_for(bot))
+    return png_response(avatar_path_for(bot, theme))
 
 
 @app.get("/api/bots")
