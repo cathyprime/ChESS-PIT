@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -ne 3 ]]; then
-  echo "usage: $0 THEME MASK_ATLAS.png OUTPUT_ROOT" >&2
+  echo "usage: $0 THEME DECOR_ATLAS.png OUTPUT_ROOT" >&2
   exit 2
 fi
 
@@ -18,7 +18,8 @@ atlas_height="$(identify -format '%h' "$atlas")"
 cell_width=$((atlas_width / 4))
 cell_height=$((atlas_height / 2))
 
-for item in "reaper:7" "emblem:6"; do
+# The final three cells are the transparent UI decorations consumed by ThemeDecor.
+for item in "hand:5" "scythe:6" "reaper:7"; do
   name="${item%%:*}"
   index="${item#*:}"
   column=$((index % 4))
