@@ -21,6 +21,7 @@ import type {
   BotHistoryResponse,
   Game,
   HistoryGame,
+  RatingSettings,
   RatingRun,
 } from "./types";
 import "./style.css";
@@ -1418,7 +1419,7 @@ function Admin({ refresh, bots }: { refresh: () => void; bots: Bot[] }) {
   const { theme } = useTheme();
   const [open, setOpen] = useState(false);
   const [pw, setPw] = useState("");
-  const [settings, setSettings] = useState<any>();
+  const [settings, setSettings] = useState<RatingSettings>();
   const [run, setRun] = useState<RatingRun>();
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
@@ -1426,7 +1427,7 @@ function Admin({ refresh, bots }: { refresh: () => void; bots: Bot[] }) {
     try {
       const value = await api<RatingRun>("/api/admin/rating-runs/current");
       setRun(value);
-      if (value.status === "running" || value.status === "completed") refresh();
+      if (["running", "completed", "cancelled"].includes(value.status)) refresh();
     } catch {}
   };
   useEffect(() => {
@@ -1472,6 +1473,7 @@ function Admin({ refresh, bots }: { refresh: () => void; bots: Bot[] }) {
       </div>
     );
   const running = run?.status === "queued" || run?.status === "running";
+  const activeRun = running || run?.status === "cancelling";
   const progress = run?.totalGames
     ? Math.round((100 * run.completedGames) / run.totalGames)
     : 0;
@@ -1491,6 +1493,7 @@ function Admin({ refresh, bots }: { refresh: () => void; bots: Bot[] }) {
           max="100"
           step="2"
           value={settings.gamesPerPair}
+          disabled={activeRun || Boolean(busy)}
           onChange={(e) =>
             setSettings({ ...settings, gamesPerPair: +e.target.value })
           }
@@ -1498,12 +1501,19 @@ function Admin({ refresh, bots }: { refresh: () => void; bots: Bot[] }) {
       </label>
       <label>
         Rated time control
-        <input
+        <select
           value={settings.timeControl}
+          disabled={activeRun || Boolean(busy)}
           onChange={(e) =>
             setSettings({ ...settings, timeControl: e.target.value })
           }
-        />
+        >
+          {settings.timeControls.map((control) => (
+            <option key={control.value} value={control.value}>
+              {control.label}
+            </option>
+          ))}
+        </select>
       </label>
       <label>
         K-factor
@@ -1511,7 +1521,9 @@ function Admin({ refresh, bots }: { refresh: () => void; bots: Bot[] }) {
           type="number"
           min="1"
           max="128"
+          step="0.1"
           value={settings.kFactor}
+          disabled={activeRun || Boolean(busy)}
           onChange={(e) =>
             setSettings({ ...settings, kFactor: +e.target.value })
           }
@@ -1519,12 +1531,12 @@ function Admin({ refresh, bots }: { refresh: () => void; bots: Bot[] }) {
       </label>
       <div className="admin-actions">
         <button
-          disabled={Boolean(busy)}
+          disabled={activeRun || Boolean(busy)}
           onClick={async () => {
             setBusy("save");
             setNotice("");
             try {
-              await api("/api/admin/settings", {
+              const result = await api<any>("/api/admin/settings", {
                 method: "PUT",
                 body: JSON.stringify({
                   games_per_pair: settings.gamesPerPair,
@@ -1532,7 +1544,10 @@ function Admin({ refresh, bots }: { refresh: () => void; bots: Bot[] }) {
                   k_factor: settings.kFactor,
                 }),
               });
-              setNotice("Settings saved.");
+              setNotice(
+                `Settings saved; recalculated ${result.gamesProcessed} games and changed ${result.changes.length} ratings.`,
+              );
+              refresh();
               setBusy("");
             } catch (x: any) {
               failed(x);
@@ -1542,7 +1557,7 @@ function Admin({ refresh, bots }: { refresh: () => void; bots: Bot[] }) {
           {busy === "save" ? "Saving…" : "Save settings"}
         </button>
         <button
-          disabled={running || Boolean(busy)}
+          disabled={activeRun || Boolean(busy)}
           className="secondary"
           onClick={async () => {
             setBusy("run");
@@ -1561,7 +1576,32 @@ function Admin({ refresh, bots }: { refresh: () => void; bots: Bot[] }) {
           {running ? "Matches running…" : "Run missing matches"}
         </button>
         <button
-          disabled={running || Boolean(busy)}
+          disabled={!activeRun || run?.status === "cancelling" || Boolean(busy)}
+          className="secondary"
+          onClick={async () => {
+            setBusy("cancel");
+            setNotice("");
+            try {
+              const cancelledRun = await api<RatingRun>(
+                "/api/admin/rating-runs/current/cancel",
+                { method: "POST" },
+              );
+              setRun(cancelledRun);
+              setNotice(
+                cancelledRun.status === "cancelled"
+                  ? "Queued matches cancelled."
+                  : "Cancellation requested; the current pairing will finish.",
+              );
+              setBusy("");
+            } catch (x: any) {
+              failed(x);
+            }
+          }}
+        >
+          {run?.status === "cancelling" ? "Cancelling…" : "Cancel queued matches"}
+        </button>
+        <button
+          disabled={activeRun || Boolean(busy)}
           className="secondary"
           onClick={async () => {
             setBusy("recount");
@@ -1589,9 +1629,13 @@ function Admin({ refresh, bots }: { refresh: () => void; bots: Bot[] }) {
             <strong>
               {run.status === "completed"
                 ? "Rating run complete"
-                : run.status === "failed"
-                  ? "Rating run failed"
-                  : "Rating run in progress"}
+                : run.status === "cancelled"
+                  ? "Rating run cancelled"
+                  : run.status === "cancelling"
+                    ? "Cancellation requested"
+                    : run.status === "failed"
+                      ? "Rating run failed"
+                      : "Rating run in progress"}
             </strong>
             <span>
               {run.completedGames}/{run.totalGames} games ·{" "}

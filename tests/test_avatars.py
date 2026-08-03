@@ -3,8 +3,9 @@ import unittest
 
 from PIL import Image
 
-from app.avatars import (MAX_AVATAR_BYTES, avatar_path_for, avatar_style_for_bot, avatar_url,
-                         avatar_url_for_bot, stockfish_asset, validate_avatar)
+from app.avatars import (AVATAR_THEMES, MAX_AVATAR_BYTES, avatar_path_for,
+                         avatar_style_for_bot, avatar_url, avatar_url_for_bot,
+                         stockfish_asset, validate_avatar)
 from app.models import Bot
 
 
@@ -64,10 +65,12 @@ class AvatarTests(unittest.TestCase):
         self.assertEqual(avatar_style_for_bot(None, "Stockfish"), "mask")
 
     def test_resolves_themed_benchmark_masks_and_rejects_unknown_themes(self):
-        themed = stockfish_asset(20, "catppuccin")
-        self.assertEqual(themed.parent.name, "catppuccin")
-        self.assertEqual(themed.name, "stockfish-20.png")
-        self.assertTrue(themed.is_file())
+        for theme in sorted(AVATAR_THEMES):
+            with self.subTest(theme=theme):
+                themed = stockfish_asset(20, theme)
+                self.assertEqual(themed.parent.name, theme)
+                self.assertEqual(themed.name, "stockfish-20.png")
+                self.assertTrue(themed.is_file())
         self.assertEqual(avatar_path_for(self.bot(kind="stockfish", skill=5), "emo").parent.name,
                          "emo")
         self.assertEqual(stockfish_asset(20, "../../escape").parent.name, "inferno")

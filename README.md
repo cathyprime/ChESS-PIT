@@ -4,7 +4,7 @@ A private, password-protected arena for Linux x86-64 UCI chess engines.
 
 ![ChESSPIT arena](docs/screenshots/chesspit.png)
 
-## Six complete realms
+## Nine complete realms
 
 The **LOOK** control changes far more than an accent color. Every realm has its
 own palette, route murals, decorative reapers, interface language, chessboard,
@@ -17,15 +17,20 @@ the browser and applies immediately.
 - **Catppuccin** — the Mocha palette, terminals, coffee, and programmer reapers.
 - **Angelic** — a readable light realm with cream, gold, and celestial judgment.
 - **Jamaica** — green, gold, red, dub atmosphere, roots, and sound-system reapers.
+- **Everforest** — moss, ferns, wildflowers, warm wood, and a flower-and-grass Grim Reaper.
+- **Tokyo Night** — indigo rain, cyan and magenta neon, holographic boards, and cybernetic reapers.
+- **Gruvbox** — autumn leaves, mushrooms, brass, woodcut texture, and a warm poster-style reaper.
 
-![All six ChESSPIT realms](docs/graphics/realm-gallery.webp)
+![All nine ChESSPIT realms](docs/graphics/realm-gallery.webp)
 
 ![ChESSPIT appearance menu](docs/screenshots/appearance-menu.png)
 
 The generated artwork is bundled locally: there are no runtime image or font
 CDNs. Each realm includes eight desktop route murals, eight mobile crops, an
 atlas poster, and three transparent decorative assets: a theme-specific Grim
-Reaper, scythe, and skeletal hand.
+Reaper, scythe, and skeletal hand. Everforest leans into flowers and grass,
+Tokyo Night brings a rain-soaked neon city, and Gruvbox uses a tactile autumn
+woodcut treatment.
 
 ## Games, analysis, and masks
 
@@ -40,12 +45,16 @@ The ladder includes locked Stockfish Skill Level benchmarks at levels 1, 2, 3,
 5, 8, 13, and 20. Uploaded bots qualify against every active competitor using
 fastchess. The admin panel separates **Run missing matches**, which fills gaps
 in the configured round robin, from **Recalculate Elo**, which rebuilds ratings
-from stored rated games and admin adjustments.
+from stored rated games and admin adjustments. Rated runs use a short,
+evaluator-oriented list of fastchess controls from 1+0 through 120+1 (all
+values are seconds); the K-factor is applied immediately when settings are
+saved. An active run can be cancelled gracefully: the current pairing is
+allowed to finish, completed games are kept, and queued pairings are skipped.
 
 Each theme supplies a complete benchmark progression, from the deliberately
 comic level-1 mask to the level-20 and full-strength end states:
 
-![Six themed benchmark-mask progressions](docs/graphics/benchmark-masks.png)
+![Nine themed benchmark-mask progressions](docs/graphics/benchmark-masks.png)
 
 Uploaded bots keep their owner-provided masks in every realm. Uploads require a
 description of 1–280 characters plus a transparent 128×128 PNG mask no larger
@@ -63,6 +72,9 @@ that bot's perspective.
 ./scripts/setup.sh
 ./scripts/dev.sh
 ```
+
+Run `./scripts/validate-theme-assets.sh` after changing generated art to check
+all nine realms, desktop/mobile crops, decorations, and atlas posters.
 
 Open <http://127.0.0.1:5173>. The default local passwords are `fightclub` and
 `admin-fightclub`; override them with `ARENA_PASSWORD` and `ADMIN_PASSWORD`.

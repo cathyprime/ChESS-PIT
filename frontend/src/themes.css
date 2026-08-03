@@ -95,6 +95,54 @@ html[data-theme="jamaica"] {
   --theme-title: #f3d34d;
   --theme-particle: #d33434;
 }
+html[data-theme="everforest"] {
+  --theme-bg: #2d353b;
+  --theme-bg-2: #343f44;
+  --theme-panel: #293136ed;
+  --theme-panel-2: #3d484d;
+  --theme-text: #d3c6aa;
+  --theme-muted: #9da9a0;
+  --theme-accent: #a7c080;
+  --theme-hot: #e67e80;
+  --theme-soft: #dbbc7f;
+  --theme-line: #7fbbb3;
+  --theme-glow: #a7c08045;
+  --theme-overlay: #20282bdc;
+  --theme-title: #d3c6aa;
+  --theme-particle: #83c092;
+}
+html[data-theme="tokyonight"] {
+  --theme-bg: #1a1b26;
+  --theme-bg-2: #24283b;
+  --theme-panel: #16161eed;
+  --theme-panel-2: #292e42;
+  --theme-text: #c0caf5;
+  --theme-muted: #7982a9;
+  --theme-accent: #7aa2f7;
+  --theme-hot: #f7768e;
+  --theme-soft: #7dcfff;
+  --theme-line: #bb9af7;
+  --theme-glow: #7dcfff50;
+  --theme-overlay: #151521df;
+  --theme-title: #c0caf5;
+  --theme-particle: #bb9af7;
+}
+html[data-theme="gruvbox"] {
+  --theme-bg: #1d2021;
+  --theme-bg-2: #282828;
+  --theme-panel: #201f1ded;
+  --theme-panel-2: #3c3836;
+  --theme-text: #ebdbb2;
+  --theme-muted: #bdae93;
+  --theme-accent: #fabd2f;
+  --theme-hot: #fb4934;
+  --theme-soft: #b8bb26;
+  --theme-line: #d79921;
+  --theme-glow: #fabd2f45;
+  --theme-overlay: #1d2021df;
+  --theme-title: #ebdbb2;
+  --theme-particle: #fe8019;
+}
 
 html[data-theme] {
   color: var(--theme-text);
@@ -418,6 +466,39 @@ html[data-theme="jamaica"] {
   --art-live: url("/art/themes/jamaica/routes/live-game.webp");
   --art-admin: url("/art/themes/jamaica/routes/admin.webp");
 }
+html[data-theme="everforest"] {
+  --art-arena: url("/art/themes/everforest/routes/leaderboard.webp");
+  --art-leaderboard: url("/art/themes/everforest/routes/leaderboard.webp");
+  --art-archive: url("/art/themes/everforest/routes/archive.webp");
+  --art-history: url("/art/themes/everforest/routes/bot-history.webp");
+  --art-upload: url("/art/themes/everforest/routes/upload-forge.webp");
+  --art-showdown: url("/art/themes/everforest/routes/showdown.webp");
+  --art-human: url("/art/themes/everforest/routes/human-play.webp");
+  --art-live: url("/art/themes/everforest/routes/live-game.webp");
+  --art-admin: url("/art/themes/everforest/routes/admin.webp");
+}
+html[data-theme="tokyonight"] {
+  --art-arena: url("/art/themes/tokyonight/routes/leaderboard.webp");
+  --art-leaderboard: url("/art/themes/tokyonight/routes/leaderboard.webp");
+  --art-archive: url("/art/themes/tokyonight/routes/archive.webp");
+  --art-history: url("/art/themes/tokyonight/routes/bot-history.webp");
+  --art-upload: url("/art/themes/tokyonight/routes/upload-forge.webp");
+  --art-showdown: url("/art/themes/tokyonight/routes/showdown.webp");
+  --art-human: url("/art/themes/tokyonight/routes/human-play.webp");
+  --art-live: url("/art/themes/tokyonight/routes/live-game.webp");
+  --art-admin: url("/art/themes/tokyonight/routes/admin.webp");
+}
+html[data-theme="gruvbox"] {
+  --art-arena: url("/art/themes/gruvbox/routes/leaderboard.webp");
+  --art-leaderboard: url("/art/themes/gruvbox/routes/leaderboard.webp");
+  --art-archive: url("/art/themes/gruvbox/routes/archive.webp");
+  --art-history: url("/art/themes/gruvbox/routes/bot-history.webp");
+  --art-upload: url("/art/themes/gruvbox/routes/upload-forge.webp");
+  --art-showdown: url("/art/themes/gruvbox/routes/showdown.webp");
+  --art-human: url("/art/themes/gruvbox/routes/human-play.webp");
+  --art-live: url("/art/themes/gruvbox/routes/live-game.webp");
+  --art-admin: url("/art/themes/gruvbox/routes/admin.webp");
+}
 .route-arena {
   --route-art: var(--art-leaderboard);
 }
@@ -566,6 +647,16 @@ html[data-theme="angelic"] .game-loading {
     #c92828 69%
   ) !important;
 }
+.theme-choice-everforest {
+  background: linear-gradient(135deg, #a7c080, #2d353b 72%) !important;
+}
+.theme-choice-tokyonight {
+  background: linear-gradient(135deg, #7aa2f7 0 42%, #bb9af7 43% 64%, #1a1b26 65%) !important;
+}
+.theme-choice-gruvbox {
+  color: #282828 !important;
+  background: linear-gradient(135deg, #fabd2f, #d79921 48%, #504945 49%) !important;
+}
 .motion-controls {
   display: grid;
   grid-template-columns: 1fr auto auto;
@@ -619,6 +710,15 @@ html[data-theme="angelic"] .game-loading {
   }
   html[data-theme="jamaica"] {
     --art-leaderboard-mobile: url("/art/themes/jamaica/routes/leaderboard-mobile.webp");
+  }
+  html[data-theme="everforest"] {
+    --art-leaderboard-mobile: url("/art/themes/everforest/routes/leaderboard-mobile.webp");
+  }
+  html[data-theme="tokyonight"] {
+    --art-leaderboard-mobile: url("/art/themes/tokyonight/routes/leaderboard-mobile.webp");
+  }
+  html[data-theme="gruvbox"] {
+    --art-leaderboard-mobile: url("/art/themes/gruvbox/routes/leaderboard-mobile.webp");
   }
   .theme-grid {
     grid-template-columns: 1fr 1fr;
@@ -691,5 +791,32 @@ html[data-theme="angelic"] .game-loading {
     --art-human: url("/art/themes/jamaica/routes/human-play-mobile.webp");
     --art-live: url("/art/themes/jamaica/routes/live-game-mobile.webp");
     --art-admin: url("/art/themes/jamaica/routes/admin-mobile.webp");
+  }
+  html[data-theme="everforest"] {
+    --art-archive: url("/art/themes/everforest/routes/archive-mobile.webp");
+    --art-history: url("/art/themes/everforest/routes/bot-history-mobile.webp");
+    --art-upload: url("/art/themes/everforest/routes/upload-forge-mobile.webp");
+    --art-showdown: url("/art/themes/everforest/routes/showdown-mobile.webp");
+    --art-human: url("/art/themes/everforest/routes/human-play-mobile.webp");
+    --art-live: url("/art/themes/everforest/routes/live-game-mobile.webp");
+    --art-admin: url("/art/themes/everforest/routes/admin-mobile.webp");
+  }
+  html[data-theme="tokyonight"] {
+    --art-archive: url("/art/themes/tokyonight/routes/archive-mobile.webp");
+    --art-history: url("/art/themes/tokyonight/routes/bot-history-mobile.webp");
+    --art-upload: url("/art/themes/tokyonight/routes/upload-forge-mobile.webp");
+    --art-showdown: url("/art/themes/tokyonight/routes/showdown-mobile.webp");
+    --art-human: url("/art/themes/tokyonight/routes/human-play-mobile.webp");
+    --art-live: url("/art/themes/tokyonight/routes/live-game-mobile.webp");
+    --art-admin: url("/art/themes/tokyonight/routes/admin-mobile.webp");
+  }
+  html[data-theme="gruvbox"] {
+    --art-archive: url("/art/themes/gruvbox/routes/archive-mobile.webp");
+    --art-history: url("/art/themes/gruvbox/routes/bot-history-mobile.webp");
+    --art-upload: url("/art/themes/gruvbox/routes/upload-forge-mobile.webp");
+    --art-showdown: url("/art/themes/gruvbox/routes/showdown-mobile.webp");
+    --art-human: url("/art/themes/gruvbox/routes/human-play-mobile.webp");
+    --art-live: url("/art/themes/gruvbox/routes/live-game-mobile.webp");
+    --art-admin: url("/art/themes/gruvbox/routes/admin-mobile.webp");
   }
 }

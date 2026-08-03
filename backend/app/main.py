@@ -27,7 +27,10 @@ from .security import (read_session, require_admin, sign_session, credential_mat
 from .security import session_cookie_name
 from .runner import (qualify_bot, recount, analyse_game, get_setting, engine_argv, engine_options,
                      ensure_stockfish_bots, start_missing_rating_run, current_rating_run,
-                     rating_run_json, resume_rating_run, sandbox_ready, audit_uploaded_bots)
+                     rating_run_json, resume_rating_run, sandbox_ready, audit_uploaded_bots,
+                     cancel_current_rating_run, normalize_rating_time_control,
+                     rating_time_controls, RATING_TIME_CONTROL_VALUES,
+                     RATING_RUN_ACTIVE_STATUSES, DEFAULT_RATING_TIME_CONTROL)
 from .live import live_manager, game_snapshot, moves_for_game, board_from_moves, export_pgn, parse_json, utcnow
 from .history import bot_history_page
 from .validation import normalize_bot_description
@@ -518,13 +521,25 @@ async def game_stream(websocket: WebSocket, game_id: int):
 @app.get("/api/admin/settings")
 def admin_settings(request: Request, db: Session = Depends(get_db)):
     require_admin(request)
-    return {"gamesPerPair": int(get_setting(db, "games_per_pair", "2")), "timeControl": get_setting(db, "time_control", "10+0.1"), "kFactor": float(get_setting(db, "k_factor", "32"))}
+    return {
+        "gamesPerPair": int(get_setting(db, "games_per_pair", "2")),
+        "timeControl": normalize_rating_time_control(
+            get_setting(db, "time_control", DEFAULT_RATING_TIME_CONTROL)
+        ),
+        "kFactor": float(get_setting(db, "k_factor", "32")),
+        "timeControls": rating_time_controls(),
+    }
 
 
 @app.put("/api/admin/settings")
 def update_settings(body: SettingsUpdate, request: Request, db: Session = Depends(get_db)):
     require_admin(request)
+    current = current_rating_run(db)
+    if current and current.status in RATING_RUN_ACTIVE_STATUSES:
+        raise HTTPException(409, "Finish or cancel the active rating run before changing settings")
     if body.games_per_pair < 2 or body.games_per_pair > 100 or body.games_per_pair % 2: raise HTTPException(400, "Games must be even, from 2 to 100")
+    if body.time_control not in RATING_TIME_CONTROL_VALUES:
+        raise HTTPException(400, "Choose one of the available evaluator time controls")
     parsed_time_control(body.time_control)
     if not math.isfinite(body.k_factor) or body.k_factor < 1 or body.k_factor > 128:
         raise HTTPException(400, "K-factor must be from 1 to 128")
@@ -532,7 +547,8 @@ def update_settings(body: SettingsUpdate, request: Request, db: Session = Depend
         row = db.get(ArenaSetting, key)
         if row: row.value = str(value)
         else: db.add(ArenaSetting(key=key, value=str(value)))
-    db.commit(); return {"ok": True}
+    db.commit()
+    return {"ok": True, **recount(db)}
 
 
 @app.post("/api/admin/bots/{bot_id}/rating")
@@ -554,6 +570,15 @@ def force_recount(request: Request, db: Session = Depends(get_db)):
 def run_missing_ratings(request: Request):
     require_admin(request)
     return rating_run_json(start_missing_rating_run())
+
+
+@app.post("/api/admin/rating-runs/current/cancel", status_code=202)
+def cancel_rating_run(request: Request):
+    require_admin(request)
+    run = cancel_current_rating_run()
+    if not run:
+        raise HTTPException(409, "No rating run is queued or running")
+    return rating_run_json(run)
 
 
 @app.get("/api/admin/rating-runs/current")

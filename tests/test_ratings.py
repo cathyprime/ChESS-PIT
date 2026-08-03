@@ -1,13 +1,23 @@
 from datetime import datetime, timedelta, timezone
 import unittest
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import ArenaSetting, Bot, Game, RatingEvent
-from app.runner import missing_pairings, options_for_bot, recount, stockfish_description
+from app.models import ArenaSetting, Bot, Game, RatingEvent, RatingRun
+from app.runner import (
+    DEFAULT_RATING_TIME_CONTROL,
+    cancel_current_rating_run,
+    missing_pairings,
+    normalize_rating_time_control,
+    options_for_bot,
+    rating_time_controls,
+    recount,
+    stockfish_description,
+)
 
 
 class RatingTests(unittest.TestCase):
@@ -64,6 +74,54 @@ class RatingTests(unittest.TestCase):
 
         self.assertEqual({(row[0], row[1], row[2]) for row in missing},
                          {(first.id, third.id, 2), (second.id, third.id, 2)})
+
+    def test_rating_time_controls_are_fastchess_second_based_presets(self):
+        self.assertEqual(
+            [control["value"] for control in rating_time_controls()],
+            ["1+0", "2+0.02", "3+0.03", "5+0.05", "10+0.1", "15+0.1",
+             "30+0.3", "60+0.6", "120+1"],
+        )
+        self.assertEqual(normalize_rating_time_control("60+0.6"), "60+0.6")
+        self.assertEqual(normalize_rating_time_control("999+999"), DEFAULT_RATING_TIME_CONTROL)
+
+    def test_recount_uses_saved_k_factor(self):
+        first, second = self.bot("First"), self.bot("Second")
+        self.game(first, second, "1-0")
+        setting = ArenaSetting(key="k_factor", value="32")
+        self.db.add(setting)
+        self.db.commit()
+
+        recount(self.db)
+        self.assertEqual(first.rating, 1516.0)
+        self.assertEqual(second.rating, 1484.0)
+
+        setting.value = "16"
+        self.db.commit()
+        recount(self.db)
+        self.assertEqual(first.rating, 1508.0)
+        self.assertEqual(second.rating, 1492.0)
+
+    def test_cancel_rating_run_stops_queued_work_or_marks_running_work(self):
+        queued = RatingRun(status="queued", current_pairing="First vs Second")
+        self.db.add(queued)
+        self.db.commit()
+
+        with patch("app.runner.SessionLocal", self.Session):
+            cancelled = cancel_current_rating_run()
+
+        self.assertEqual(cancelled.status, "cancelled")
+        self.assertIsNone(cancelled.current_pairing)
+        self.assertIsNotNone(cancelled.completed_at)
+
+        running = RatingRun(status="running", current_pairing="Second vs Third")
+        self.db.add(running)
+        self.db.commit()
+
+        with patch("app.runner.SessionLocal", self.Session):
+            cancelling = cancel_current_rating_run()
+
+        self.assertEqual(cancelling.status, "cancelling")
+        self.assertEqual(cancelling.current_pairing, "Second vs Third")
 
     def test_stockfish_fastchess_options_include_skill_level(self):
         bot = self.bot("Stockfish Level 13", "stockfish", 13)

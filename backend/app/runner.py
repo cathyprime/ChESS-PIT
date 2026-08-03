@@ -13,13 +13,27 @@ from pathlib import Path
 import chess
 import chess.engine
 import chess.pgn
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from .config import settings
 from .db import SessionLocal
 from .models import Bot, Game, RatingEvent, ArenaSetting, RatingRun, now
 
 
 STOCKFISH_LEVELS = (1, 2, 3, 5, 8, 13, 20)
+RATING_TIME_CONTROLS = (
+    ("1+0", "1 sec + 0 sec increment"),
+    ("2+0.02", "2 sec + 0.02 sec increment"),
+    ("3+0.03", "3 sec + 0.03 sec increment"),
+    ("5+0.05", "5 sec + 0.05 sec increment"),
+    ("10+0.1", "10 sec + 0.1 sec increment"),
+    ("15+0.1", "15 sec + 0.1 sec increment"),
+    ("30+0.3", "30 sec + 0.3 sec increment"),
+    ("60+0.6", "60 sec + 0.6 sec increment"),
+    ("120+1", "120 sec + 1 sec increment"),
+)
+RATING_TIME_CONTROL_VALUES = frozenset(value for value, _ in RATING_TIME_CONTROLS)
+DEFAULT_RATING_TIME_CONTROL = "10+0.1"
+RATING_RUN_ACTIVE_STATUSES = ("queued", "running", "cancelling")
 _rating_lock = threading.Lock()
 logger = logging.getLogger(__name__)
 
@@ -84,6 +98,14 @@ def stockfish_description(skill: int) -> str:
         20: "High-strength Stockfish benchmark with relentless calculation.",
     }
     return descriptions.get(skill, f"Stockfish benchmark at Skill Level {skill}.")
+
+
+def rating_time_controls() -> list[dict[str, str]]:
+    return [{"value": value, "label": label} for value, label in RATING_TIME_CONTROLS]
+
+
+def normalize_rating_time_control(value: str) -> str:
+    return value if value in RATING_TIME_CONTROL_VALUES else DEFAULT_RATING_TIME_CONTROL
 
 
 def ensure_stockfish_bots():
@@ -204,7 +226,7 @@ def run_pairing(first_id: int, second_id: int, count: int | None = None) -> int:
         count = count or int(get_setting(db, "games_per_pair", "2"))
         if count % 2:
             count += 1
-        tc = get_setting(db, "time_control", "10+0.1")
+        tc = normalize_rating_time_control(get_setting(db, "time_control", DEFAULT_RATING_TIME_CONTROL))
         out_path = settings.storage_dir / "matches" / f"pair-{first_id}-{second_id}-{secrets.token_hex(8)}.pgn"
         command = [settings.fastchess_path, *options_for_bot(first), *options_for_bot(second), "-each", f"tc={tc}",
                    "proto=uci", "-rounds", str(max(1, count // 2)), "-repeat", "-games", "2",
@@ -309,7 +331,7 @@ def current_rating_run(db) -> RatingRun | None:
 def start_missing_rating_run() -> RatingRun:
     with SessionLocal() as db:
         current = current_rating_run(db)
-        if current and current.status in ("queued", "running"):
+        if current and current.status in RATING_RUN_ACTIVE_STATUSES:
             return current
         run = RatingRun(status="queued")
         db.add(run); db.commit(); db.refresh(run)
@@ -319,6 +341,40 @@ def start_missing_rating_run() -> RatingRun:
         return db.get(RatingRun, run_id)
 
 
+def _mark_rating_run_cancelled(run: RatingRun):
+    run.status = "cancelled"
+    run.current_pairing = None
+    run.completed_at = now()
+
+
+def cancel_current_rating_run() -> RatingRun | None:
+    with SessionLocal() as db:
+        run = current_rating_run(db)
+        if not run or run.status not in RATING_RUN_ACTIVE_STATUSES:
+            return None
+        if run.status == "queued":
+            changed = db.execute(
+                update(RatingRun)
+                .where(RatingRun.id == run.id, RatingRun.status == "queued")
+                .values(status="cancelled", current_pairing=None, completed_at=now())
+            )
+        elif run.status == "running":
+            changed = db.execute(
+                update(RatingRun)
+                .where(RatingRun.id == run.id, RatingRun.status == "running")
+                .values(status="cancelling", error=None)
+            )
+        else:
+            db.refresh(run)
+            return run
+        if changed.rowcount != 1:
+            db.rollback()
+            latest = current_rating_run(db)
+            return latest if latest and latest.status == "cancelling" else None
+        db.commit()
+        return db.get(RatingRun, run.id)
+
+
 def _rating_run_worker(run_id: int):
     with _rating_lock:
         try:
@@ -326,42 +382,93 @@ def _rating_run_worker(run_id: int):
                 run = db.get(RatingRun, run_id)
                 if not run:
                     return
+                if run.status == "cancelling":
+                    _mark_rating_run_cancelled(run)
+                    db.commit()
+                    return
+                if run.status not in ("queued", "running"):
+                    return
                 tasks = missing_pairings(db)
-                run.status = "running"
-                run.completed_pairings = 0
-                run.completed_games = 0
-                run.total_pairings = len(tasks)
-                run.total_games = sum(task[2] for task in tasks)
+                changed = db.execute(
+                    update(RatingRun)
+                    .where(RatingRun.id == run_id, RatingRun.status.in_(("queued", "running")))
+                    .values(
+                        status="running",
+                        completed_pairings=0,
+                        completed_games=0,
+                        total_pairings=len(tasks),
+                        total_games=sum(task[2] for task in tasks),
+                    )
+                )
+                if changed.rowcount != 1:
+                    db.rollback()
+                    return
                 db.commit()
             for first_id, second_id, count, label in tasks:
                 with SessionLocal() as db:
                     run = db.get(RatingRun, run_id)
+                    if not run:
+                        return
+                    if run.status in ("cancelling", "cancelled"):
+                        if run.status == "cancelling":
+                            _mark_rating_run_cancelled(run)
+                            db.commit()
+                        return
                     run.current_pairing = label
                     db.commit()
                 played = run_pairing(first_id, second_id, count)
                 with SessionLocal() as db:
                     run = db.get(RatingRun, run_id)
+                    if not run:
+                        return
                     run.completed_pairings += 1
                     run.completed_games += played
                     recount(db)
+                    db.refresh(run)
+                    if run.status == "cancelling":
+                        _mark_rating_run_cancelled(run)
+                        db.commit()
+                        return
                     db.commit()
             with SessionLocal() as db:
                 run = db.get(RatingRun, run_id)
-                run.status, run.current_pairing, run.completed_at = "completed", None, now()
+                if not run:
+                    return
+                changed = db.execute(
+                    update(RatingRun)
+                    .where(RatingRun.id == run_id, RatingRun.status == "running")
+                    .values(status="completed", current_pairing=None, completed_at=now())
+                )
+                if changed.rowcount == 1:
+                    db.commit()
+                    return
+                db.rollback()
+                db.refresh(run)
+                if run.status == "cancelling":
+                    _mark_rating_run_cancelled(run)
                 db.commit()
         except Exception as exc:
             logger.exception("Rating run %s failed", run_id)
             with SessionLocal() as db:
                 run = db.get(RatingRun, run_id)
                 if run:
-                    run.status, run.error, run.completed_at = "failed", "Sandboxed rating match failed", now()
+                    if run.status == "cancelling":
+                        _mark_rating_run_cancelled(run)
+                    else:
+                        run.status, run.error, run.completed_at = "failed", "Sandboxed rating match failed", now()
                     db.commit()
 
 
 def resume_rating_run():
     with SessionLocal() as db:
         run = current_rating_run(db)
-        if not run or run.status not in ("queued", "running"):
+        if not run:
+            return
+        if run.status == "cancelling":
+            _mark_rating_run_cancelled(run)
+            db.commit()
+            return
+        if run.status not in ("queued", "running"):
             return
         run.status = "queued"
         run.error = None

@@ -16,7 +16,17 @@ AVATAR_SIZE = (128, 128)
 MIN_TRANSPARENT_PIXELS = int(AVATAR_SIZE[0] * AVATAR_SIZE[1] * .10)
 ASSET_DIR = Path(__file__).with_name("assets") / "avatars"
 STOCKFISH_VARIANTS = {"1", "2", "3", "5", "8", "13", "20", "full"}
-AVATAR_THEMES = {"inferno", "emo", "gangsta", "catppuccin", "angelic", "jamaica"}
+AVATAR_THEMES = {
+    "inferno",
+    "emo",
+    "gangsta",
+    "catppuccin",
+    "angelic",
+    "jamaica",
+    "everforest",
+    "tokyonight",
+    "gruvbox",
+}
 
 
 def validate_avatar(data: bytes) -> tuple[bytes, str]:
