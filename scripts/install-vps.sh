@@ -199,7 +199,7 @@ use_whiptail() {
 read_input() {
   local prompt="$1" outvar="$2" value=""
   if use_whiptail; then
-    if ! value="$(whiptail --title "ChESS-PIT installer" --inputbox "$prompt" 10 70 3>&1 1>&2 2>&3)"; then
+    if ! value="$(whiptail --title "ChESS-PIT installer" --inputbox "$prompt" 10 70 3>&1 1>&2 2>&3 3>&-)"; then
       echo "Input cancelled." >&2
       exit 1
     fi
@@ -218,7 +218,7 @@ read_secret() {
     return
   fi
   if use_whiptail; then
-    if ! secret="$(whiptail --title "ChESS-PIT installer" --passwordbox "$prompt" 10 70 3>&1 1>&2 2>&3)"; then
+    if ! secret="$(whiptail --title "ChESS-PIT installer" --passwordbox "$prompt" 10 70 3>&1 1>&2 2>&3 3>&-)"; then
       echo "Password entry cancelled." >&2
       exit 1
     fi
