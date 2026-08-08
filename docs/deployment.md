@@ -78,6 +78,49 @@ secrets, builds every image, starts automatic HTTPS, and waits for the database,
 web app, and upload sandbox to become healthy. It is safe to rerun and preserves
 all named Docker volumes and credentials.
 
+## Rootless Podman
+
+The installer is container-engine agnostic. It uses Docker by default; select
+Podman explicitly with `ENGINE=podman` or `--engine podman` (the flag wins).
+There is no auto-detection, and any other value is rejected.
+
+Podman must provide the docker-compose v2 provider, because the stack relies on
+Compose v2 features (`depends_on.condition`, file `secrets:`, `profiles:`, and
+an `internal:` network) that podman-compose does not support reliably. Install
+the `docker-compose` v2 binary so `podman compose version` reports
+`Docker Compose version v2.x`; the installer refuses to continue otherwise.
+
+Rootless prerequisites:
+
+- an API socket: `systemctl --user enable --now podman.socket`. The installer
+  starts it if needed and exports `DOCKER_HOST` when it is not already set;
+- `loginctl enable-linger $USER`, so containers keep running after logout;
+- subordinate ID ranges at least 65536 wide in `/etc/subuid` and `/etc/subgid`
+  (the runner maps container UID/GID 10001), for example
+  `sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USER`.
+
+Rootless installs do not need `sudo`. Configuration and password hashes are
+written to `${XDG_CONFIG_HOME:-$HOME/.config}/chesspit` (directory `0700`,
+`.env` `0600`) instead of `/etc/chesspit`, and that `.env` is passed to Compose
+with `--env-file`. Rootful Podman keeps the `/etc/chesspit` layout.
+
+The bundled Caddy profile binds ports 80 and 443, which rootless containers
+cannot do, so the installer refuses that combination. Terminate TLS with a host
+proxy and use the external-Caddy mode:
+
+```bash
+ENGINE=podman ./scripts/install-vps.sh --external-caddy --http-port 9710
+```
+
+The final health check then probes `http://127.0.0.1:9710/api/health` directly.
+
+`TRUSTED_PROXIES` defaults per engine: `172.16.0.0/12` for Docker and
+`10.89.0.0/16` for Podman's default bridge. Both remain overridable through the
+environment when the `.env` file is first created.
+
+Status commands follow the selected engine, for example
+`podman compose --env-file ~/.config/chesspit/.env ps`.
+
 ## Uploaded-engine boundary
 
 Uploaded binaries never execute in the API container or directly on the VPS
