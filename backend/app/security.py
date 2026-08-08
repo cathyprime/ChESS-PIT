@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import ipaddress
 import secrets
 import threading
 import time
@@ -62,11 +63,23 @@ def is_admin(session: dict) -> bool:
 
 def client_address(request: Request) -> str:
     peer = request.client.host if request.client else "unknown"
-    if peer in settings.trusted_proxies:
+    if is_trusted_proxy(peer, settings.trusted_proxies):
         forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
-        if forwarded:
+        try:
+            ipaddress.ip_address(forwarded)
+        except ValueError:
+            pass
+        else:
             return forwarded
     return peer
+
+
+def is_trusted_proxy(peer: str, proxies: tuple[str, ...]) -> bool:
+    try:
+        address = ipaddress.ip_address(peer)
+        return any(address in ipaddress.ip_network(value, strict=False) for value in proxies)
+    except ValueError:
+        return False
 
 
 def check_attempt_limit(request: Request, bucket: str, limit: int = 5, window: int = 900) -> None:

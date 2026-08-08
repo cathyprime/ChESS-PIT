@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Narrow host service that runs uploaded UCI engines inside rootless gVisor."""
+"""Narrow Unix-socket service for running uploaded UCI engines in isolation."""
 from __future__ import annotations
 
 import hashlib
@@ -7,8 +7,9 @@ import json
 import logging
 import os
 import re
+import resource
 import selectors
-import shutil
+import secrets
 import signal
 import socket
 import socketserver
@@ -24,6 +25,9 @@ CACHE_DIR = Path(os.getenv("RUNNER_CACHE_DIR", "/var/lib/chesspit-runner/cache")
 IMAGE = os.getenv("ENGINE_IMAGE", "localhost/chesspit-engine-runtime:latest")
 RUN_IMAGE = IMAGE
 RUNTIME = os.getenv("ENGINE_RUNTIME", "runsc")
+ENGINE_BACKEND = os.getenv("ENGINE_BACKEND", "podman")
+ENGINE_UID = int(os.getenv("ENGINE_UID", "65534"))
+ENGINE_GID = int(os.getenv("ENGINE_GID", "65534"))
 MAX_ENGINES = int(os.getenv("MAX_CONCURRENT_ENGINES", "4"))
 MAX_LINE = 64 * 1024
 OUTPUT_WINDOW = 10.0
@@ -61,7 +65,8 @@ def cached_engine(key: str, expected: str) -> Path:
     except OSError as exc:
         raise ValueError("invalid engine file") from exc
     CACHE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    target = CACHE_DIR / expected
+    target_name = expected if ENGINE_BACKEND == "podman" else f"{expected}-{secrets.token_hex(8)}"
+    target = CACHE_DIR / target_name
     temporary = CACHE_DIR / f".{expected}-{os.getpid()}-{threading.get_ident()}"
     try:
         info = os.fstat(descriptor)
@@ -77,7 +82,7 @@ def cached_engine(key: str, expected: str) -> Path:
             dst.flush()
             os.fsync(dst.fileno())
         if not target.exists():
-            temporary.chmod(0o500)
+            temporary.chmod(0o505 if ENGINE_BACKEND == "container-process" else 0o500)
             temporary.replace(target)
     finally:
         os.close(descriptor)
@@ -86,8 +91,10 @@ def cached_engine(key: str, expected: str) -> Path:
 
 
 def command(engine: Path, purpose: str) -> list[str]:
+    if ENGINE_BACKEND == "container-process":
+        return [str(engine)]
     timeout = PURPOSE_TIMEOUT[purpose]
-    args = ["podman", "run", "--rm", "-i", "--pull=never", "--runtime", RUNTIME,
+    args = ["podman", "--cgroup-manager=cgroupfs", "run", "--rm", "-i", "--pull=never", "--runtime", RUNTIME,
             "--network=none", "--ipc=none", "--read-only", "--read-only-tmpfs=false",
             "--userns=keep-id:uid=65534,gid=65534", "--user=65534:65534",
             "--cap-drop=all", "--security-opt=no-new-privileges", "--pids-limit=64",
@@ -96,6 +103,20 @@ def command(engine: Path, purpose: str) -> list[str]:
             "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=16m", "-v", f"{engine}:/engine:ro,z",
             RUN_IMAGE]
     return args
+
+
+def engine_process_limits() -> None:
+    """Drop the child to nobody and apply limits before executing its ELF."""
+    resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
+    resource.setrlimit(resource.RLIMIT_NPROC, (64, 64))
+    resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (20 * 1024 * 1024, 20 * 1024 * 1024))
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    os.umask(0o077)
+    if os.geteuid() == 0:
+        os.setgroups([])
+        os.setgid(ENGINE_GID)
+        os.setuid(ENGINE_UID)
 
 
 def relay(client: socket.socket, proc: subprocess.Popen, deadline: float) -> None:
@@ -142,6 +163,7 @@ def relay(client: socket.socket, proc: subprocess.Popen, deadline: float) -> Non
 class Handler(socketserver.BaseRequestHandler):
     def handle(self) -> None:
         proc = None
+        engine = None
         acquired = False
         acknowledged = False
         try:
@@ -160,7 +182,8 @@ class Handler(socketserver.BaseRequestHandler):
                 return
             engine = cached_engine(str(request.get("key", "")), str(request.get("sha256", "")))
             proc = subprocess.Popen(command(engine, purpose), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                    stderr=subprocess.DEVNULL, bufsize=0, start_new_session=True)
+                                    stderr=subprocess.DEVNULL, bufsize=0, start_new_session=True,
+                                    preexec_fn=engine_process_limits if ENGINE_BACKEND == "container-process" else None)
             send_json(self.request, {"ok": True})
             acknowledged = True
             relay(self.request, proc, time.monotonic() + PURPOSE_TIMEOUT[purpose])
@@ -178,6 +201,8 @@ class Handler(socketserver.BaseRequestHandler):
                 except ProcessLookupError:
                     pass
                 proc.wait(timeout=5)
+            if engine and ENGINE_BACKEND == "container-process":
+                engine.unlink(missing_ok=True)
             if acquired:
                 capacity.release()
 
@@ -188,8 +213,22 @@ class Server(socketserver.ThreadingUnixStreamServer):
 
 def preflight() -> None:
     global RUN_IMAGE
+    if ENGINE_BACKEND not in {"podman", "container-process"}:
+        raise RuntimeError("ENGINE_BACKEND must be 'podman' or 'container-process'")
     BOT_DIR.mkdir(parents=True, exist_ok=True)
     SOCKET_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CACHE_DIR.mkdir(parents=True, exist_ok=True, mode=0o711)
+    if ENGINE_BACKEND == "container-process":
+        if os.getenv("RUNNING_IN_ENGINE_CONTAINER", "false").lower() != "true":
+            raise RuntimeError("The process backend may run only in the dedicated engine container")
+        if os.geteuid() != 0:
+            raise RuntimeError("The container runner must start as root so engine children can drop privileges")
+        selftest = CACHE_DIR / ".selftest"
+        selftest.write_text("#!/bin/sh\nexit 0\n")
+        selftest.chmod(0o505)
+        subprocess.run(command(selftest, "validate"), check=True, preexec_fn=engine_process_limits,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+        return
     subprocess.run(["podman", "info"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
     result = subprocess.run(["podman", "image", "inspect", IMAGE, "--format", "{{.Id}}"], check=True,
                             capture_output=True, text=True, timeout=10)
@@ -200,10 +239,9 @@ def preflight() -> None:
         raise RuntimeError("Could not pin the engine image by immutable ID")
     if RUNTIME != "runsc" and os.getenv("ALLOW_NON_GVISOR", "false").lower() != "true":
         raise RuntimeError("gVisor/runsc is required")
-    CACHE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     selftest = CACHE_DIR / ".selftest"
     selftest.unlink(missing_ok=True)
-    shutil.copyfile("/bin/true", selftest)
+    selftest.write_text("#!/bin/sh\nexit 0\n")
     selftest.chmod(0o500)
     subprocess.run(command(selftest, "validate"), check=True,
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)

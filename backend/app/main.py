@@ -191,7 +191,7 @@ def bot_games(bot_id: int, request: Request, offset: int = 0, limit: int = 50,
 
 @app.post("/api/bots")
 async def upload_bot(request: Request, name: str = Form(...), description: str = Form(...), binary: UploadFile = File(...),
-                     avatar: UploadFile = File(...), db: Session = Depends(get_db)):
+                     avatar: UploadFile | None = File(None), db: Session = Depends(get_db)):
     user = read_session(request)
     check_attempt_limit(request, "bot-upload", limit=10, window=3600)
     record_failed_attempt(request, "bot-upload")
@@ -216,23 +216,26 @@ async def upload_bot(request: Request, name: str = Form(...), description: str =
     if total_bytes + len(data) > settings.max_bot_storage_bytes: raise HTTPException(503, "Arena storage capacity reached")
     if len(data) < 20 or data[:4] != b"\x7fELF" or data[4] != 2 or int.from_bytes(data[18:20], "little") != 62:
         raise HTTPException(400, "Upload must be a 64-bit x86-64 ELF executable")
-    try:
-        avatar_data, avatar_digest = validate_avatar(await avatar.read(MAX_AVATAR_BYTES + 1))
-    except ValueError as exc:
-        raise HTTPException(400, str(exc))
+    avatar_data, avatar_digest = None, None
+    if avatar and avatar.filename:
+        try:
+            avatar_data, avatar_digest = validate_avatar(await avatar.read(MAX_AVATAR_BYTES + 1))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
     recovery = new_token()
     digest = hashlib.sha256(data).hexdigest()
     target = settings.storage_dir / "bots" / new_token()
     target.write_bytes(data); target.chmod(0o540)
-    avatar_target = store_avatar(avatar_data)
+    avatar_target = store_avatar(avatar_data) if avatar_data else None
     bot = Bot(name=name, description=description, binary_path=str(target), sha256=digest,
               binary_size=len(data), owner_id=user["owner"],
-              recovery_hash=token_hash(recovery), avatar_path=str(avatar_target),
-              avatar_sha256=avatar_digest, avatar_style="mask")
+              recovery_hash=token_hash(recovery),
+              avatar_path=str(avatar_target) if avatar_target else None,
+              avatar_sha256=avatar_digest, avatar_style="mask" if avatar_target else "legacy")
     try:
         db.add(bot); db.commit(); db.refresh(bot)
     except Exception:
-        target.unlink(missing_ok=True); remove_stored_avatar(str(avatar_target)); raise
+        target.unlink(missing_ok=True); remove_stored_avatar(str(avatar_target) if avatar_target else None); raise
     threading.Thread(target=qualify_bot, args=(bot.id,), daemon=True).start()
     return {"bot": bot_json(bot, user["owner"]), "recoveryToken": recovery}
 

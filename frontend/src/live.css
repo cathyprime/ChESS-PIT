@@ -92,6 +92,7 @@
 .avatar-preview { display: flex; align-items: center; gap: 16px; margin: 15px 0; padding: 14px; border: 1px dashed #734032; background: #0b0808; }
 .avatar-preview img { width: 88px; height: 88px; object-fit: contain; filter: drop-shadow(0 4px 5px #000) drop-shadow(0 0 7px #bd2b19); }
 .avatar-preview span { color: #a99689; font-size: 12px; }
+.field-hint { margin: 8px 0 14px; color: #a99689; font-size: 12px; }
 
 .engine-picker { position: relative; margin: 15px 0; color: #c0aa9b; font-size: 13px; font-weight: 600; }
 .engine-picker > span { display: block; margin-bottom: 7px; }

@@ -75,7 +75,10 @@ def engine_options(path: str, name: str, trusted: bool = False, sha256: str = ""
                    uci_options: dict[str, str | int] | None = None) -> list[str]:
     argv = engine_argv(path, sha256, trusted, purpose)
     values = ["-engine", f"cmd={argv[0]}", f"name={name}"]
-    values.extend(f"arg={arg}" for arg in argv[1:])
+    if len(argv) > 1:
+        # FastChess accepts one plural `args` option and splits its value into
+        # the wrapper's argv. Repeated singular `arg` options are invalid.
+        values.append(f"args={' '.join(argv[1:])}")
     values.extend(f"option.{key}={value}" for key, value in (uci_options or {}).items())
     return values
 

@@ -11,6 +11,7 @@ from app.models import ArenaSetting, Bot, Game, RatingEvent, RatingRun
 from app.runner import (
     DEFAULT_RATING_TIME_CONTROL,
     cancel_current_rating_run,
+    engine_options,
     missing_pairings,
     normalize_rating_time_control,
     options_for_bot,
@@ -130,6 +131,16 @@ class RatingTests(unittest.TestCase):
 
         self.assertIn("name=Stockfish Level 13", options)
         self.assertIn("option.Skill Level=13", options)
+
+    def test_uploaded_engine_uses_fastchess_plural_args_option(self):
+        argv = ["/sandbox-wrapper", "rated", "engine", "0" * 64]
+        with patch("app.runner.engine_argv", return_value=argv):
+            options = engine_options("/engine", "Uploaded", sha256="0" * 64)
+
+        wrapper_args = [value for value in options if value.startswith("args=")]
+        self.assertEqual(len(wrapper_args), 1)
+        self.assertIn("rated engine " + "0" * 64, wrapper_args[0])
+        self.assertFalse(any(value.startswith("arg=") for value in options))
 
     def test_stockfish_description_is_stable_for_benchmarks(self):
         self.assertIn("High-strength Stockfish", stockfish_description(20))

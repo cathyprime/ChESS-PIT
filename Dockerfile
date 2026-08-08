@@ -24,7 +24,7 @@ CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000","--ws-max-size"
 FROM node:22-alpine@sha256:76789712cd1ae89a1225eac9077010d68987a423588042dac30446f502f1858c AS web-build
 WORKDIR /web
 COPY frontend/package*.json ./
-RUN npm install
+RUN npm ci
 COPY frontend ./
 RUN npm run build
 
@@ -32,7 +32,18 @@ FROM nginx:alpine@sha256:1d40e3eb3bf4f138de1d67193f2aa5309fcaf343eb5ffadbf5e9439
 COPY --from=web-build /web/dist /usr/share/nginx/html
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 
-FROM debian:bookworm-slim@sha256:63a496b5d3b99214b39f5ed70eb71a61e590a77979c79cbee4faf991f8c0783e AS engine-runtime
-RUN useradd --uid 65534 --no-create-home engine || true
-USER 65534:65534
-ENTRYPOINT ["/engine"]
+FROM debian:bookworm-slim@sha256:63a496b5d3b99214b39f5ed70eb71a61e590a77979c79cbee4faf991f8c0783e AS data-init
+CMD ["sh", "-c", "install -d -o 10001 -g 10001 -m 0770 /app/data /app/data/bots /app/data/matches /app/data/avatars"]
+
+FROM python:3.13-slim@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5e925c2d0e1a91 AS runner
+WORKDIR /runner
+COPY scripts/runner-daemon.py ./runner-daemon.py
+RUN groupadd -g 10001 chesspit \
+ && install -d -o root -g chesspit -m 2770 /run/chesspit-runner \
+ && install -d -o root -g root -m 0711 /cache
+ENV RUNNER_SOCKET=/run/chesspit-runner/runner.sock \
+    BOT_STORAGE_DIR=/app/data/bots \
+    RUNNER_CACHE_DIR=/cache \
+    ENGINE_BACKEND=container-process \
+    RUNNING_IN_ENGINE_CONTAINER=true
+CMD ["python", "/runner/runner-daemon.py"]

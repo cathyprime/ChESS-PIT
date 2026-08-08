@@ -56,10 +56,12 @@ comic level-1 mask to the level-20 and full-strength end states:
 
 ![Nine themed benchmark-mask progressions](docs/graphics/benchmark-masks.png)
 
-Uploaded bots keep their owner-provided masks in every realm. Uploads require a
-description of 1–280 characters plus a transparent 128×128 PNG mask no larger
-than 256 KB, with at least 10% of its pixels fully transparent. Owners can edit
-descriptions, rename bots, replace masks, or retire their own bots.
+Uploaded bots keep their owner-provided masks in every realm. A mask is
+optional; bots uploaded without one use the bundled default avatar. Custom
+masks must be transparent 128×128 PNG files no larger than 256 KB, with at
+least 10% of their pixels fully transparent. Uploads require a description of
+1–280 characters. Owners can edit descriptions, rename bots, add or replace
+masks, or retire their own bots.
 
 The home page keeps the scrollable leaderboard beside the human and bot-vs-bot
 actions on desktop, then stacks those panels on smaller screens. Every bot name
@@ -67,6 +69,18 @@ opens its paginated history with rated, exhibition, and human games shown from
 that bot's perspective.
 
 ## Local development
+
+For the complete app, including sandboxed bot uploads, use Docker:
+
+```bash
+./scripts/dev-docker.sh
+```
+
+Open <http://127.0.0.1:5173>. The local passwords are `fightclub` and
+`admin-fightclub`. Uploaded engines execute only in the dedicated, networkless
+runner container—not in the API container or directly on the host.
+
+For frontend/backend hot reload without uploaded-engine execution:
 
 ```bash
 ./scripts/setup.sh
@@ -76,32 +90,84 @@ that bot's perspective.
 Run `./scripts/validate-theme-assets.sh` after changing generated art to check
 all nine realms, desktop/mobile crops, decorations, and atlas posters.
 
-Open <http://127.0.0.1:5173>. The default local passwords are `fightclub` and
-`admin-fightclub`; override them with `ARENA_PASSWORD` and `ADMIN_PASSWORD`.
+Override local passwords with `ARENA_PASSWORD` and `ADMIN_PASSWORD`.
 
 On first visit, ChESSPIT opens the appearance menu. **Alive** enables only
 animated lettering and the single moving skeletal hand. **Still** freezes all
 motion. There are no flashing screens, moving reaper sprites, or rolling flame
 borders.
 
-Uploaded executables are untrusted. They are disabled by default and are never
-run directly by the API. Production uses the permissioned host runner socket,
-rootless Podman, and gVisor; see the deployment guide before enabling uploads.
+Uploaded executables are untrusted and are never run directly by the API. The
+Docker runner has no network, a read-only root filesystem, dropped privileges,
+and strict process, memory, file, output, and time limits.
 
 ## Deployment
 
-The backend accepts `DATABASE_URL` (SQLite locally, PostgreSQL in production),
-`STORAGE_DIR`, `FASTCHESS_PATH`, `STOCKFISH_PATH`, and `FRONTEND_ORIGIN`. The
-Vite frontend uses `VITE_API_URL`; leave it empty when served from the same
-origin, or point it at the VPS API for a static/GitHub Pages build.
+### VPS prerequisites
+
+- Any x86-64 Linux VPS capable of running Docker Engine and Docker Compose v2;
+  Debian Trixie is supported. 4 vCPUs and 8 GB RAM are recommended.
+- A domain such as `arena.example.com` already pointing to the VPS.
+- `sudo` access, with inbound TCP ports 80 and 443 open. Keep the VPS SSH port
+  open; optional UDP port 443 enables HTTP/3.
+
+### Install
+
+On a new VPS, run:
+
+```bash
+sudo apt-get update && sudo apt-get install -y git
+sudo git clone https://github.com/kkreczko/ChESS-PIT.git /opt/chesspit
+cd /opt/chesspit
+sudo ./scripts/install-vps.sh
+```
+
+The installer asks privately for new arena and admin passwords, stores only
+Argon2id hashes, generates all machine secrets, configures automatic HTTPS, and
+self-tests the isolated Docker upload runner. No repository password is used in
+production and plaintext arena/admin passwords are not saved. When the final
+health check passes, open `https://your-domain`.
+
+The installation command is safe to rerun: database contents, uploads,
+certificates, and existing credentials are preserved. To update or repair an
+installation:
+
+```bash
+cd /opt/chesspit
+sudo git pull --ff-only
+sudo ./scripts/install-vps.sh
+```
+
+To choose new arena and admin passwords explicitly:
+
+```bash
+cd /opt/chesspit
+sudo ./scripts/install-vps.sh --rotate-passwords
+```
+
+Useful status commands:
+
+```bash
+cd /opt/chesspit
+sudo docker compose ps
+sudo docker compose logs --tail=200 runner api web caddy db
+```
+
+### Configuration notes
+
+The backend also accepts `DATABASE_URL` (SQLite locally, PostgreSQL in
+production), `STORAGE_DIR`, `FASTCHESS_PATH`, `STOCKFISH_PATH`, and
+`FRONTEND_ORIGIN`. The Vite frontend uses `VITE_API_URL`; leave it empty when
+served from the same origin, or point it at the VPS API for a static/GitHub
+Pages build.
 
 A VPS is the recommended complete deployment because user-uploaded engine
 binaries, fastchess, live WebSockets, authentication, and persistent game data
 all require a backend process. GitHub Pages can host only the static frontend;
 it still needs a separately secured VPS API and correct CORS configuration.
 
-See [docs/deployment.md](docs/deployment.md) for the production layout and
-security boundary.
+See [docs/deployment.md](docs/deployment.md) for prerequisites, updates,
+backups, credential rotation, troubleshooting, and the security boundary.
 
 ## Rules
 

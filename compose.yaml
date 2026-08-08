@@ -1,4 +1,44 @@
+name: chesspit
+
 services:
+  data-init:
+    build: {context: ., target: data-init}
+    volumes: [app-data:/app/data]
+    network_mode: none
+    restart: "no"
+
+  runner:
+    build: {context: ., target: runner}
+    environment:
+      MAX_CONCURRENT_ENGINES: ${MAX_CONCURRENT_ENGINES:-4}
+    volumes:
+      - app-data:/app/data:ro
+      - runner-socket:/run/chesspit-runner
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+      - /cache:rw,exec,nosuid,nodev,size=256m,mode=0711
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, KILL, DAC_READ_SEARCH]
+    security_opt: [no-new-privileges:true]
+    network_mode: none
+    pids_limit: 300
+    mem_limit: 3g
+    cpus: 4.0
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; s=socket.socket(socket.AF_UNIX); s.settimeout(1); s.connect('/run/chesspit-runner/runner.sock'); s.sendall(b'{\"version\":1,\"op\":\"health\"}'+bytes([10])); assert b'\"ok\":true' in s.recv(256)"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   db:
     image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     environment:
@@ -6,34 +46,96 @@ services:
       POSTGRES_USER: chesspit
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chesspit -d chesspit"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks: [backend]
+
   api:
     build: {context: ., target: api}
     environment:
       ENVIRONMENT: production
       DATABASE_URL: postgresql+psycopg://chesspit:${POSTGRES_PASSWORD}@db/chesspit
-      ARENA_PASSWORD_HASH: ${ARENA_PASSWORD_HASH:?set ARENA_PASSWORD_HASH}
-      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:?set ADMIN_PASSWORD_HASH}
+      ARENA_PASSWORD_HASH_FILE: /run/secrets/arena_password_hash
+      ADMIN_PASSWORD_HASH_FILE: /run/secrets/admin_password_hash
       SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY}
       SECURE_COOKIES: "true"
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?set FRONTEND_ORIGIN}
+      FRONTEND_ORIGIN: https://${DOMAIN:?set DOMAIN}
       STORAGE_DIR: /app/data
       FASTCHESS_PATH: /app/tools/fastchess
       STOCKFISH_PATH: /app/tools/stockfish
       RUNNER_MODE: socket
       RUNNER_SOCKET: /run/chesspit-runner/runner.sock
-      TRUSTED_PROXIES: ${TRUSTED_PROXIES:?set TRUSTED_PROXIES}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
+    secrets: [arena_password_hash, admin_password_hash]
     volumes:
-      - ${CHESSPIT_DATA_DIR:?set CHESSPIT_DATA_DIR}:/app/data
-      - /run/chesspit-runner/runner.sock:/run/chesspit-runner/runner.sock
+      - app-data:/app/data
+      - runner-socket:/run/chesspit-runner:ro
     read_only: true
-    tmpfs: [/tmp:rw,noexec,nosuid,nodev,size=32m]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     pids_limit: 256
-    depends_on: [db]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,urllib.request; d=json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/health')); assert d['ok'] and d['stockfish'] and d['fastchess'] and d['sandbox']=='ready'"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    depends_on:
+      db: {condition: service_healthy}
+      runner: {condition: service_healthy}
+    restart: unless-stopped
+    networks: [backend]
+
   web:
     build: {context: ., target: web}
-    ports: ["127.0.0.1:8080:80"]
-    depends_on: [api]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    depends_on:
+      api: {condition: service_healthy}
+    restart: unless-stopped
+    networks: [edge, backend]
+
+  caddy:
+    image: caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      web: {condition: service_healthy}
+    restart: unless-stopped
+    networks: [edge]
+
 volumes:
+  app-data:
+  runner-socket:
   postgres-data:
+  caddy-data:
+  caddy-config:
+
+secrets:
+  arena_password_hash:
+    file: ${CHESSPIT_SECRETS_DIR:-./secrets}/arena_password_hash
+  admin_password_hash:
+    file: ${CHESSPIT_SECRETS_DIR:-./secrets}/admin_password_hash
+
+networks:
+  edge:
+  backend:
+    internal: true

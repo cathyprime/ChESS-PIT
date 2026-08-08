@@ -1,63 +1,101 @@
 # Deployment and security
 
-## Recommended target
+## Docker VPS installation
 
-Use a dedicated x86-64 VPS rather than GitHub Pages. Pages can serve the Vite
-output but cannot run FastAPI, PostgreSQL, fastchess, Stockfish, or uploaded UCI
-binaries. A split Pages/VPS deployment is supported through `VITE_API_URL`, but
-requires exact CORS configuration and preferably sibling custom domains.
+ChESSPIT supports any x86-64 Linux VPS with Docker Engine and Docker Compose v2,
+including Debian Trixie. The host does not need Python, Node.js, PostgreSQL,
+Podman, or gVisor.
 
-For a small arena, begin with Ubuntu 24.04 LTS, 4 vCPUs, 8 GB RAM, PostgreSQL,
-TLS termination, and persistent storage with daily backups. Do not place other
-valuable services or credentials on the match host.
-
-## Required production settings
-
-- Generate Argon2id values for `ARENA_PASSWORD_HASH` and `ADMIN_PASSWORD_HASH`,
-  and set an unpredictable `SECRET_KEY` of at least 32 characters. Production
-  startup rejects plain/default credentials.
-- Set `SECURE_COOKIES=true`, `FRONTEND_ORIGIN=https://arena.example.com`, and a
-  PostgreSQL `DATABASE_URL`.
-- Terminate TLS at Caddy and expose only ports 80/443. Do not expose PostgreSQL.
-- Install rootless Podman and gVisor/runsc. Uploaded binaries never execute in
-  the API container or directly on the host.
-- Build the minimal engine runtime with
-  `podman build --target engine-runtime -t chesspit-engine-runtime:latest .`.
-- Create a `chesspit` group plus dedicated API (UID 10001) and
-  `chesspit-runner` users. `/var/lib/chesspit/bots` must be group-readable but
-  not writable by the runner. Install `scripts/runner-daemon.py` under
-  `/opt/chesspit`, install `deploy/chesspit-runner.service`, configure subuid and
-  subgid ranges for the runner, and enable the service.
-- Set `CHESSPIT_DATA_DIR=/var/lib/chesspit`, `RUNNER_MODE=socket`, and mount only
-  `/run/chesspit-runner/runner.sock` into the API. Never mount a Podman or Docker
-  socket into the web/API container.
-
-The runner performs a gVisor launch self-test before opening its socket. If the
-runner, runtime, or pinned image is unavailable, the site remains usable for
-trusted Stockfish play but uploads and uploaded-bot launches fail with HTTP 503.
-`RUNNER_MODE=disabled` is the safe development default.
-
-Build the runtime image as the runner user so it exists in that user's rootless
-Podman storage:
+Before installing, point a DNS hostname such as `arena.example.com` at the VPS,
+allow inbound TCP ports 80 and 443, and keep the VPS SSH port open. UDP 443 is
+optional for HTTP/3. A dedicated host with at least 4 vCPUs and 8 GB RAM is
+recommended.
 
 ```bash
-sudo -u chesspit-runner podman build --target engine-runtime \
-  -t chesspit-engine-runtime:latest /opt/chesspit
-sudo systemctl enable --now chesspit-runner
+sudo apt-get update && sudo apt-get install -y git
+sudo git clone https://github.com/kkreczko/ChESS-PIT.git /opt/chesspit
+cd /opt/chesspit
+sudo ./scripts/install-vps.sh
 ```
 
-The checked-in defaults allow four sandboxed engines, two active user games,
-five bots per browser owner, and 100 bots/5 GiB globally. Override the matching
-environment variables only after checking host capacity.
+The installer checks Docker/Compose, prompts twice for new arena and admin
+passwords, stores only Argon2id hashes, generates the database and session
+secrets, builds every image, starts automatic HTTPS, and waits for the database,
+web app, and upload sandbox to become healthy. It is safe to rerun and preserves
+all named Docker volumes and credentials.
 
-Before upgrading an existing installation, back up the database and data
-directory. On first start the database migration adds binary-size accounting;
-verify existing uploaded binaries and retire any row whose file or SHA-256 does
-not match before enabling the runner.
+## Uploaded-engine boundary
 
-## Static frontend switch
+Uploaded binaries never execute in the API container or directly on the VPS
+host. A narrow Unix-socket protocol connects the API to a dedicated runner
+container. The Docker or Podman daemon socket is never mounted into any
+container.
 
-Build with `VITE_API_URL=https://api.example.com npm --prefix frontend run build`
-and publish `frontend/dist`. The API must remain on the VPS. Prefer
-`arena.example.com` and `api.example.com` over the raw `github.io` domain so
-session cookies are not treated as unrelated third-party cookies.
+The runner container has:
+
+- no network namespace connectivity;
+- a read-only root filesystem and read-only bot-storage mount;
+- no-new-privileges and only the capabilities required to drop engine children
+  to the unprivileged `nobody` identity and terminate them;
+- per-engine address-space, process, file-descriptor, output-file, output-rate,
+  and wall-clock limits;
+- aggregate container CPU, memory, and process limits;
+- digest verification and traversal/symlink rejection before execution.
+
+The runner socket is inaccessible to the dropped engine identity. If the runner
+is absent or unhealthy, uploads and uploaded-bot launches fail closed with HTTP
+503; there is no direct-execution fallback.
+
+## Local upload testing
+
+Run the same runner architecture locally:
+
+```bash
+./scripts/dev-docker.sh
+```
+
+Open <http://127.0.0.1:5173> and use `fightclub` / `admin-fightclub`. Stop it
+without deleting data using:
+
+```bash
+docker compose -f compose.local.yaml down
+```
+
+## Updates, credentials, and logs
+
+```bash
+cd /opt/chesspit
+sudo git pull --ff-only
+sudo ./scripts/install-vps.sh
+```
+
+Rotate the arena/admin passwords:
+
+```bash
+sudo ./scripts/install-vps.sh --rotate-passwords
+```
+
+Inspect health and logs:
+
+```bash
+sudo docker compose ps
+sudo docker compose logs --tail=200 runner api web caddy db
+```
+
+## Backups
+
+Store backups away from the VPS. Back up PostgreSQL and the named `app-data`
+volume before upgrades:
+
+```bash
+sudo install -d -m 0700 /var/backups/chesspit
+sudo docker compose exec -T db pg_dump -U chesspit -Fc chesspit \
+  | sudo tee /var/backups/chesspit/postgres.dump >/dev/null
+sudo docker run --rm -v chesspit_app-data:/data:ro \
+  -v /var/backups/chesspit:/backup alpine \
+  tar -C /data -czf /backup/app-data.tar.gz .
+sudo tar -C / -czf /var/backups/chesspit/config.tar.gz \
+  etc/chesspit opt/chesspit/.env
+```
+
+Caddy certificates can be reissued from DNS and are not required for recovery.

@@ -1329,12 +1329,12 @@ function Upload({ refresh }: { refresh: () => void }) {
         <form
           onSubmit={async (e) => {
             e.preventDefault();
-            if (!file || !avatar) return;
+            if (!file) return;
             const data = new FormData();
             data.append("name", name);
             data.append("description", description);
             data.append("binary", file);
-            data.append("avatar", avatar);
+            if (avatar) data.append("avatar", avatar);
             try {
               const result = await api("/api/bots", {
                 method: "POST",
@@ -1384,12 +1384,11 @@ function Upload({ refresh }: { refresh: () => void }) {
             />
           </label>
           <label>
-            Mask · transparent PNG, 128×128, maximum 256 KB
+            Mask (optional) · transparent PNG, 128×128, maximum 256 KB
             <input
               type="file"
               accept="image/png"
               onChange={(e) => chooseAvatar(e.target.files?.[0])}
-              required
             />
           </label>
           {preview && (
@@ -1401,7 +1400,13 @@ function Upload({ refresh }: { refresh: () => void }) {
               </span>
             </div>
           )}
-          <button disabled={!avatar || !description.trim()}>
+          {!preview && (
+            <p className="field-hint">
+              Without a mask, the bot uses the default avatar. You can add one
+              later.
+            </p>
+          )}
+          <button disabled={!file || !description.trim()}>
             {theme.copy.pages.uploadButton}
           </button>
           {message && (

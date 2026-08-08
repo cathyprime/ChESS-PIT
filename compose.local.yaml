@@ -1,0 +1,91 @@
+name: chesspit-local
+
+services:
+  data-init:
+    build: {context: ., target: data-init}
+    volumes: [app-data:/app/data]
+    network_mode: none
+    restart: "no"
+
+  runner:
+    build: {context: ., target: runner}
+    volumes:
+      - app-data:/app/data:ro
+      - runner-socket:/run/chesspit-runner
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+      - /cache:rw,exec,nosuid,nodev,size=256m,mode=0711
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, KILL, DAC_READ_SEARCH]
+    security_opt: [no-new-privileges:true]
+    network_mode: none
+    pids_limit: 300
+    mem_limit: 3g
+    cpus: 4.0
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import socket; s=socket.socket(socket.AF_UNIX); s.settimeout(1); s.connect('/run/chesspit-runner/runner.sock'); s.sendall(b'{\"version\":1,\"op\":\"health\"}'+bytes([10])); assert b'\"ok\":true' in s.recv(256)"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      data-init: {condition: service_completed_successfully}
+    restart: unless-stopped
+
+  api:
+    build: {context: ., target: api}
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: sqlite:////app/data/arena.db
+      STORAGE_DIR: /app/data
+      ARENA_PASSWORD: ${ARENA_PASSWORD:-fightclub}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin-fightclub}
+      SECRET_KEY: ${SECRET_KEY:-local-docker-development-secret}
+      SECURE_COOKIES: "false"
+      FRONTEND_ORIGIN: http://127.0.0.1:5173
+      FASTCHESS_PATH: /app/tools/fastchess
+      STOCKFISH_PATH: /app/tools/stockfish
+      RUNNER_MODE: socket
+      RUNNER_SOCKET: /run/chesspit-runner/runner.sock
+      TRUSTED_PROXIES: 172.16.0.0/12
+    volumes:
+      - app-data:/app/data
+      - runner-socket:/run/chesspit-runner:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 256
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,urllib.request; d=json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/health')); assert d['sandbox']=='ready'"
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      runner: {condition: service_healthy}
+    restart: unless-stopped
+    networks: [backend]
+
+  web:
+    build: {context: ., target: web}
+    ports: ["127.0.0.1:5173:80"]
+    depends_on:
+      api: {condition: service_healthy}
+    restart: unless-stopped
+    networks: [backend]
+
+volumes:
+  app-data:
+  runner-socket:
+
+networks:
+  backend:
