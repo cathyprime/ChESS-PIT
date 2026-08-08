@@ -256,38 +256,119 @@ else
 fi
 
 read_secret() {
-  local prompt="$1" outvar="$2" secret="" char
-  if [[ ! -t 0 ]]; then
-    IFS= read -r secret
-    printf -v "$outvar" '%s' "$secret"
+  local prompt="$1" outvar="$2" left="" right="" char rest
+  if [[ ! -t 0 || ! -t 2 ]]; then
+    IFS= read -r left
+    printf -v "$outvar" '%s' "$left"
     return
   fi
-  printf '%s' "$prompt" >&2
+  _redraw_secret() {
+    local stars="" i
+    for ((i = 0; i < ${#left} + ${#right}; i++)); do
+      stars+='*'
+    done
+    printf '\r\033[K%s%s' "$prompt" "$stars" >&2
+    for ((i = 0; i < ${#right}; i++)); do
+      printf '\b' >&2
+    done
+  }
+  _redraw_secret
   while IFS= read -r -s -n 1 char; do
     case "$char" in
       "")
         break
         ;;
-      $'\177'|$'\b')
-        if [[ -n "$secret" ]]; then
-          secret="${secret%?}"
-          printf '\b \b' >&2
+      $'\033')
+        rest=""
+        IFS= read -r -s -n 1 -t 0.05 char || char=""
+        case "$char" in
+          '['|'O')
+            while IFS= read -r -s -n 1 -t 0.05 char; do
+              rest+="$char"
+              [[ "$char" == [A-Za-z~] ]] && break
+            done
+            ;;
+          *)
+            continue
+            ;;
+        esac
+        case "$rest" in
+          D)  # left
+            if [[ -n "$left" ]]; then
+              right="${left: -1}$right"
+              left="${left%?}"
+            fi
+            ;;
+          C)  # right
+            if [[ -n "$right" ]]; then
+              left+="${right:0:1}"
+              right="${right:1}"
+            fi
+            ;;
+          H|1~|7~)  # home
+            right="$left$right"
+            left=""
+            ;;
+          F|4~|8~)  # end
+            left+="$right"
+            right=""
+            ;;
+          3~)  # delete
+            right="${right:1}"
+            ;;
+          *)
+            continue
+            ;;
+        esac
+        ;;
+      $'\177'|$'\b')  # backspace
+        left="${left%?}"
+        ;;
+      $'\001')  # ctrl-a
+        right="$left$right"
+        left=""
+        ;;
+      $'\005')  # ctrl-e
+        left+="$right"
+        right=""
+        ;;
+      $'\002')  # ctrl-b
+        if [[ -n "$left" ]]; then
+          right="${left: -1}$right"
+          left="${left%?}"
         fi
         ;;
-      $'\025')
-        while [[ -n "$secret" ]]; do
-          secret="${secret%?}"
-          printf '\b \b' >&2
-        done
+      $'\006')  # ctrl-f
+        if [[ -n "$right" ]]; then
+          left+="${right:0:1}"
+          right="${right:1}"
+        fi
+        ;;
+      $'\004')  # ctrl-d
+        right="${right:1}"
+        ;;
+      $'\013')  # ctrl-k
+        right=""
+        ;;
+      $'\025')  # ctrl-u
+        left=""
+        ;;
+      $'\027')  # ctrl-w
+        left="${left%"${left##*[![:space:]]}"}"
+        left="${left%"${left##*[[:space:]]}"}"
+        ;;
+      [[:cntrl:]])
+        continue
         ;;
       *)
-        secret+="$char"
-        printf '*' >&2
+        left+="$char"
         ;;
     esac
+    _redraw_secret
   done
   printf '\n' >&2
-  printf -v "$outvar" '%s' "$secret"
+  unset -f _redraw_secret
+  printf -v "$outvar" '%s' "$left$right"
 }
 
 prompt_password() {
