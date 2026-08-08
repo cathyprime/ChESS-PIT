@@ -18,6 +18,60 @@ cd /opt/chesspit
 sudo ./scripts/install-vps.sh
 ```
 
+For a VPS whose SSH service is already configured on another port:
+
+```bash
+sudo ./scripts/install-vps.sh --ssh-port 2222
+```
+
+The value is validated and saved as `SSH_PORT` in the root-only `.env` file.
+It documents the port that must remain allowed through the host/provider
+firewall; it is not a Docker port mapping. Configure and verify the host's
+`sshd` listener before running the installer. ChESSPIT does not modify or
+restart SSH, preventing the deployment from locking you out of the VPS.
+
+### Existing host Caddy
+
+To attach ChESSPIT to an existing host-level Caddy, import the supplied file
+inside the appropriate site block:
+
+```caddyfile
+arena.example.com {
+    import /opt/chesspit/deploy/chesspit-caddy 9710
+}
+```
+
+Validate and reload Caddy before running the installer in external mode:
+
+```bash
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+cd /opt/chesspit
+sudo ./scripts/install-vps.sh --external-caddy --http-port 9710
+```
+
+This mode stops the bundled Caddy service and exposes the Docker web service
+only as `127.0.0.1:9710`, which is the upstream passed to the import.
+WebSockets and normal HTTP requests are forwarded by Caddy's `reverse_proxy`.
+Switch back with `sudo ./scripts/install-vps.sh --bundled-caddy`.
+
+For an existing wildcard site block, route the selected hostname before any
+catch-all handler:
+
+```caddyfile
+@chesspit host chesspit.example.com
+handle @chesspit {
+    import /opt/chesspit/deploy/chesspit-caddy 9710
+}
+```
+
+Using `reverse_proxy 127.0.0.1:9710` directly in that handle is equivalent.
+
+The `caddy` Compose service belongs to the disabled-by-default `bundled-caddy`
+profile. Therefore a plain `docker compose up -d --build` never binds ports 80
+or 443 and serves ChESSPIT at `127.0.0.1:3000`. The bind address and port can be
+changed through `CHESSPIT_BIND_ADDRESS` and `CHESSPIT_HTTP_PORT`.
+
 The installer checks Docker/Compose, prompts twice for new arena and admin
 passwords, stores only Argon2id hashes, generates the database and session
 secrets, builds every image, starts automatic HTTPS, and waits for the database,

@@ -5,19 +5,50 @@ project_dir="$(cd "$(dirname "$0")/.." && pwd)"
 env_file="$project_dir/.env"
 secret_dir="/etc/chesspit"
 rotate_passwords=false
+ssh_port_override=""
+external_caddy_override=""
+http_port_override=""
 
 usage() {
-  echo "Usage: sudo ./scripts/install-vps.sh [--rotate-passwords]" >&2
+  echo "Usage: sudo ./scripts/install-vps.sh [--rotate-passwords] [--ssh-port PORT] [--http-port PORT] [--external-caddy|--bundled-caddy]" >&2
 }
 
-if [[ "${1:-}" == "--rotate-passwords" ]]; then
-  rotate_passwords=true
-  shift
-fi
-if (( $# )); then
-  usage
-  exit 2
-fi
+while (( $# )); do
+  case "$1" in
+    --rotate-passwords)
+      rotate_passwords=true
+      shift
+      ;;
+    --ssh-port)
+      if [[ -z "${2:-}" ]]; then
+        usage
+        exit 2
+      fi
+      ssh_port_override="$2"
+      shift 2
+      ;;
+    --external-caddy)
+      external_caddy_override=true
+      shift
+      ;;
+    --http-port)
+      if [[ -z "${2:-}" ]]; then
+        usage
+        exit 2
+      fi
+      http_port_override="$2"
+      shift 2
+      ;;
+    --bundled-caddy)
+      external_caddy_override=false
+      shift
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+done
 if (( EUID != 0 )); then
   echo "Run this installer with sudo." >&2
   exit 1
@@ -55,6 +86,26 @@ if [[ -f "$env_file" ]]; then
   . "$env_file"
   domain="${DOMAIN:-}"
 fi
+
+ssh_port="${ssh_port_override:-${SSH_PORT:-}}"
+if [[ -z "$ssh_port" && -n "${SSH_CONNECTION:-}" ]]; then
+  read -r _ _ _ ssh_port <<< "$SSH_CONNECTION"
+fi
+ssh_port="${ssh_port:-22}"
+if [[ ! "$ssh_port" =~ ^[0-9]+$ ]] || (( ssh_port < 1 || ssh_port > 65535 )); then
+  echo "SSH port must be an integer from 1 to 65535." >&2
+  exit 1
+fi
+external_caddy="${external_caddy_override:-${EXTERNAL_CADDY:-false}}"
+if [[ "$external_caddy" != "true" && "$external_caddy" != "false" ]]; then
+  echo "EXTERNAL_CADDY must be true or false." >&2
+  exit 1
+fi
+http_port="${http_port_override:-${CHESSPIT_HTTP_PORT:-3000}}"
+if [[ ! "$http_port" =~ ^[0-9]+$ ]] || (( http_port < 1 || http_port > 65535 )); then
+  echo "ChESSPIT HTTP port must be an integer from 1 to 65535." >&2
+  exit 1
+fi
 if [[ -z "$domain" ]]; then
   read -r -p "Public domain (already pointing to this VPS): " domain
 fi
@@ -79,9 +130,32 @@ if [[ ! -f "$env_file" ]]; then
     "SECRET_KEY=$secret_key" \
     "CHESSPIT_SECRETS_DIR=$secret_dir" \
     "TRUSTED_PROXIES=172.16.0.0/12" \
+    "SSH_PORT=$ssh_port" \
+    "EXTERNAL_CADDY=$external_caddy" \
+    "CHESSPIT_BIND_ADDRESS=127.0.0.1" \
+    "CHESSPIT_HTTP_PORT=$http_port" \
     > "$env_file"
   chmod 600 "$env_file"
   chown root:root "$env_file"
+else
+  set_env_value() {
+    local key="$1" value="$2"
+    if grep -q "^${key}=" "$env_file"; then
+      sed -i "s/^${key}=.*/${key}=${value}/" "$env_file"
+    else
+      printf '%s=%s\n' "$key" "$value" >> "$env_file"
+    fi
+  }
+  if [[ -n "$ssh_port_override" ]]; then
+    set_env_value SSH_PORT "$ssh_port"
+  fi
+  if [[ -n "$external_caddy_override" ]]; then
+    set_env_value EXTERNAL_CADDY "$external_caddy"
+    set_env_value CHESSPIT_BIND_ADDRESS 127.0.0.1
+  fi
+  if [[ -n "$http_port_override" ]]; then
+    set_env_value CHESSPIT_HTTP_PORT "$http_port"
+  fi
 fi
 
 prompt_password() {
@@ -129,7 +203,16 @@ chmod 644 "$arena_hash_file" "$admin_hash_file"
 
 cd "$project_dir"
 docker compose config --quiet
-docker compose up -d --build --remove-orphans
+compose_args=()
+up_args=(up -d --build --remove-orphans)
+if [[ "$external_caddy" == "true" ]]; then
+  # Free ports 80/443 when switching an existing deployment from the bundled
+  # proxy. The stopped container is retained and can be started again later.
+  docker compose --profile bundled-caddy stop caddy
+else
+  compose_args+=(--profile bundled-caddy)
+fi
+docker compose "${compose_args[@]}" "${up_args[@]}"
 
 health=""
 for _ in $(seq 1 60); do
@@ -143,12 +226,20 @@ for _ in $(seq 1 60); do
 done
 if [[ "$health" != *'"sandbox":"ready"'* ]]; then
   docker compose ps >&2
-  docker compose logs --tail=100 runner api web caddy >&2
+  if [[ "$external_caddy" == "true" ]]; then
+    docker compose logs --tail=100 runner api web >&2
+  else
+    docker compose logs --tail=100 runner api web caddy >&2
+  fi
   echo "Deployment did not become healthy. Check DNS and the logs above." >&2
   exit 1
 fi
 
 echo
 echo "ChESSPIT is ready at https://$domain"
+echo "Recorded host SSH port: $ssh_port (the installer does not reconfigure sshd or the host firewall)."
+if [[ "$external_caddy" == "true" ]]; then
+  echo "Using the host Caddy import; Docker web is available only at 127.0.0.1:$http_port."
+fi
 echo "Uploaded engines run only in the isolated, networkless runner container."
 echo "The arena and admin passwords were not stored in plaintext."

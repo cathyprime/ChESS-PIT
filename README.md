@@ -122,6 +122,65 @@ cd /opt/chesspit
 sudo ./scripts/install-vps.sh
 ```
 
+If the VPS already runs SSH on a non-default port, record it during installation:
+
+```bash
+sudo ./scripts/install-vps.sh --ssh-port 2222
+```
+
+ChESSPIT does not publish or manage SSH. It publishes loopback port 3000 for an
+existing proxy, or HTTP/HTTPS ports 80 and 443 when the bundled Caddy profile is
+selected. Configure `sshd` and allow the chosen TCP port in the VPS firewall
+before using this option. The installer records and validates the port but
+deliberately does not restart SSH or edit the host firewall, avoiding an
+accidental lockout. Connect later with, for example,
+`ssh -p 2222 user@your-domain`.
+
+#### Use an existing host Caddy
+
+ChESSPIT can use Caddy that is already installed and serving other sites on the
+VPS. Add this inside the site's existing domain block:
+
+```caddyfile
+arena.example.com {
+    import /opt/chesspit/deploy/chesspit-caddy 9710
+}
+```
+
+Then validate and reload the host configuration, and install ChESSPIT without
+starting its bundled Caddy container:
+
+```bash
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+cd /opt/chesspit
+sudo ./scripts/install-vps.sh --external-caddy --http-port 9710
+```
+
+The imported file proxies to the loopback port passed after its path—in this
+example, `127.0.0.1:9710`. Docker publishes that port only
+on loopback, so it is not reachable directly from the internet. To return to
+the bundled HTTPS container, run `sudo ./scripts/install-vps.sh --bundled-caddy`.
+
+When Caddy uses one wildcard block for several subdomains, add a host matcher
+before its catch-all handlers:
+
+```caddyfile
+@chesspit host chesspit.example.com
+handle @chesspit {
+    import /opt/chesspit/deploy/chesspit-caddy 9710
+}
+```
+
+The import is optional; its equivalent is simply
+`reverse_proxy 127.0.0.1:9710` inside the same `handle` block.
+
+The production Compose file also works directly without occupying ports 80 or
+443: `docker compose up -d --build` starts the stack on the configured loopback
+port (3000 by default) and
+leaves the bundled Caddy profile disabled. Set `CHESSPIT_BIND_ADDRESS=0.0.0.0`
+only if port 3000 must be reachable directly from outside the VPS.
+
 The installer asks privately for new arena and admin passwords, stores only
 Argon2id hashes, generates all machine secrets, configures automatic HTTPS, and
 self-tests the isolated Docker upload runner. No repository password is used in

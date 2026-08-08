@@ -1,0 +1,4 @@
+# Import this file inside an existing Caddy site block and pass the loopback
+# port as its first argument, for example: import /opt/chesspit/deploy/chesspit-caddy 9710
+encode zstd gzip
+reverse_proxy 127.0.0.1:{args[0]}
