@@ -255,13 +255,46 @@ else
   fi
 fi
 
+read_secret() {
+  local prompt="$1" outvar="$2" secret="" char
+  if [[ ! -t 0 ]]; then
+    IFS= read -r secret
+    printf -v "$outvar" '%s' "$secret"
+    return
+  fi
+  printf '%s' "$prompt" >&2
+  while IFS= read -r -s -n 1 char; do
+    case "$char" in
+      "")
+        break
+        ;;
+      $'\177'|$'\b')
+        if [[ -n "$secret" ]]; then
+          secret="${secret%?}"
+          printf '\b \b' >&2
+        fi
+        ;;
+      $'\025')
+        while [[ -n "$secret" ]]; do
+          secret="${secret%?}"
+          printf '\b \b' >&2
+        done
+        ;;
+      *)
+        secret+="$char"
+        printf '*' >&2
+        ;;
+    esac
+  done
+  printf '\n' >&2
+  printf -v "$outvar" '%s' "$secret"
+}
+
 prompt_password() {
   local label="$1" first second
   while true; do
-    read -r -s -p "$label password (minimum 12 characters): " first
-    echo
-    read -r -s -p "Confirm $label password: " second
-    echo
+    read_secret "$label password (minimum 12 characters): " first
+    read_secret "Confirm $label password: " second
     if [[ ${#first} -lt 12 ]]; then
       echo "Password must contain at least 12 characters." >&2
     elif [[ "$first" != "$second" ]]; then
