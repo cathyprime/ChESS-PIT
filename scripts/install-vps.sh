@@ -381,9 +381,8 @@ if [[ "$engine" == "podman" ]]; then
   chmod 644 "$unit_file"
   if systemctl "${service_scope[@]}" daemon-reload >/dev/null 2>&1 \
       && systemctl "${service_scope[@]}" enable --now chesspit.service >/dev/null 2>&1; then
-    service_enabled=true
+    service_summary="Enabled chesspit.service; manage the stack with 'systemctl ${service_scope[*]} status|restart|stop chesspit'."
   else
-    service_enabled=false
     echo "Wrote $unit_file but could not enable it automatically." >&2
     echo "Enable it manually with: systemctl ${service_scope[*]} enable --now chesspit.service" >&2
   fi
@@ -399,8 +398,8 @@ if [[ "$rootless" == true ]]; then
   echo "Rootless Podman deployment; configuration and hashes live in $secret_dir."
   echo "Run 'loginctl enable-linger $(id -un)' so the containers survive logout."
 fi
-if [[ "$engine" == "podman" && "$service_enabled" == true ]]; then
-  echo "Enabled chesspit.service; manage the stack with 'systemctl ${service_scope[*]} status|restart|stop chesspit'."
+if [[ -n "${service_summary:-}" ]]; then
+  echo "$service_summary"
 fi
 echo "Uploaded engines run only in the isolated, networkless runner container."
 echo "The arena and admin passwords were not stored in plaintext."

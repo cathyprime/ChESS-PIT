@@ -126,8 +126,8 @@ installer therefore writes and enables a `chesspit.service` systemd unit that
 runs `podman compose up -d` on boot and `podman compose down` on stop:
 
 - rootless: `${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/chesspit.service`,
-  enabled with `systemctl --user`; it only survives logout and starts at boot
-  when linger is enabled (`loginctl enable-linger $USER`);
+  enabled with `systemctl --user`; it keeps running past logout and starts at
+  boot only when linger is enabled (`loginctl enable-linger $USER`);
 - rootful: `/etc/systemd/system/chesspit.service`, enabled with
   `systemctl --system`.
 
