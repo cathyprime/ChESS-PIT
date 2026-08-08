@@ -236,6 +236,12 @@ Configuration and password hashes go to `${XDG_CONFIG_HOME:-$HOME/.config}/chess
 instead of `/etc/chesspit`, and `TRUSTED_PROXIES` defaults to `10.89.0.0/16` for
 Podman (`172.16.0.0/12` for Docker); both stay overridable.
 
+Podman has no daemon that restarts containers after a reboot, so the installer
+also writes and enables a `chesspit.service` systemd unit — a user unit when
+rootless (hence the linger requirement), a system unit when rootful. Manage the
+stack with `systemctl --user status|restart|stop chesspit`. Docker installs are
+unchanged and keep relying on the Docker daemon's restart policies.
+
 [docs/deployment.md](docs/deployment.md#complete-rootless-walkthrough) contains a
 complete walkthrough that creates a dedicated `chesspit` user, grants its
 subordinate ID ranges, installs the stack, and wires it to a host Caddy.

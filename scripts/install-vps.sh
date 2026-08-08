@@ -343,6 +343,52 @@ if [[ "$health" != *'"sandbox":"ready"'* ]]; then
   exit 1
 fi
 
+if [[ "$engine" == "podman" ]]; then
+  # Unlike dockerd, Podman has no daemon that re-applies Compose restart
+  # policies after a reboot, so install a systemd unit that brings the stack up.
+  podman_path="$(command -v podman)"
+  service_scope=(--user)
+  unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+  unit_after="podman.socket"
+  unit_wanted_by="default.target"
+  if [[ "$rootless" != true ]]; then
+    service_scope=(--system)
+    unit_dir="/etc/systemd/system"
+    unit_after="network-online.target"
+    unit_wanted_by="multi-user.target"
+  fi
+  install -d -m 0755 "$unit_dir"
+  unit_file="$unit_dir/chesspit.service"
+  service_compose_args=("${compose_env_args[@]}" "${compose_args[@]}")
+  {
+    printf '%s\n' \
+      "[Unit]" \
+      "Description=ChESSPIT Compose stack (Podman)" \
+      "After=$unit_after" \
+      "Wants=$unit_after" \
+      "" \
+      "[Service]" \
+      "Type=oneshot" \
+      "RemainAfterExit=yes" \
+      "TimeoutStartSec=0" \
+      "WorkingDirectory=$project_dir" \
+      "ExecStart=$podman_path compose ${service_compose_args[*]} up -d --remove-orphans" \
+      "ExecStop=$podman_path compose ${service_compose_args[*]} down" \
+      "" \
+      "[Install]" \
+      "WantedBy=$unit_wanted_by"
+  } > "$unit_file"
+  chmod 644 "$unit_file"
+  if systemctl "${service_scope[@]}" daemon-reload >/dev/null 2>&1 \
+      && systemctl "${service_scope[@]}" enable --now chesspit.service >/dev/null 2>&1; then
+    service_enabled=true
+  else
+    service_enabled=false
+    echo "Wrote $unit_file but could not enable it automatically." >&2
+    echo "Enable it manually with: systemctl ${service_scope[*]} enable --now chesspit.service" >&2
+  fi
+fi
+
 echo
 echo "ChESSPIT is ready at https://$domain"
 echo "Recorded host SSH port: $ssh_port (the installer does not reconfigure sshd or the host firewall)."
@@ -352,6 +398,9 @@ fi
 if [[ "$rootless" == true ]]; then
   echo "Rootless Podman deployment; configuration and hashes live in $secret_dir."
   echo "Run 'loginctl enable-linger $(id -un)' so the containers survive logout."
+fi
+if [[ "$engine" == "podman" && "$service_enabled" == true ]]; then
+  echo "Enabled chesspit.service; manage the stack with 'systemctl ${service_scope[*]} status|restart|stop chesspit'."
 fi
 echo "Uploaded engines run only in the isolated, networkless runner container."
 echo "The arena and admin passwords were not stored in plaintext."

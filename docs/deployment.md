@@ -118,6 +118,33 @@ The final health check then probes `http://127.0.0.1:9710/api/health` directly.
 `10.89.0.0/16` for Podman's default bridge. Both remain overridable through the
 environment when the `.env` file is first created.
 
+### Boot-time service
+
+Docker's daemon re-applies the Compose `restart: unless-stopped` policies after
+a reboot, but Podman has no such daemon. When the engine is Podman, the
+installer therefore writes and enables a `chesspit.service` systemd unit that
+runs `podman compose up -d` on boot and `podman compose down` on stop:
+
+- rootless: `${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/chesspit.service`,
+  enabled with `systemctl --user`; it only survives logout and starts at boot
+  when linger is enabled (`loginctl enable-linger $USER`);
+- rootful: `/etc/systemd/system/chesspit.service`, enabled with
+  `systemctl --system`.
+
+The unit records the flags used at install time, including the `--env-file`
+pointing at the generated `.env` and the `bundled-caddy` profile when it is
+active, so rerunning the installer with different flags refreshes it. Manage
+the stack afterwards with:
+
+```bash
+systemctl --user status chesspit
+systemctl --user restart chesspit
+systemctl --user stop chesspit
+```
+
+Use `systemctl --system ...` for a rootful Podman install. Docker installs get
+no unit; their behaviour is unchanged.
+
 Status commands follow the selected engine, for example
 `podman compose --env-file ~/.config/chesspit/.env ps`.
 
@@ -154,12 +181,17 @@ ENGINE=podman ./scripts/install-vps.sh --external-caddy --http-port 9710
 
 The installer prompts for the domain and the arena/admin passwords, builds the
 images, writes `~/.config/chesspit/.env` plus the Argon2id hashes, starts the
-stack, and waits for health. Verify it directly:
+stack, enables the `chesspit.service` user unit, and waits for health. Verify it
+directly:
 
 ```bash
 curl -s 127.0.0.1:9710/api/health
+systemctl --user status chesspit
 podman compose --env-file ~/.config/chesspit/.env ps
 ```
+
+Because linger is enabled, that unit also starts the stack after a reboot;
+confirm with `sudo reboot` followed by the same `curl`.
 
 Finally, publish it through the host Caddy, as root:
 
