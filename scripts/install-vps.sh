@@ -192,8 +192,69 @@ if [[ "$rootless" == true && "$external_caddy" != "true" ]]; then
   echo "Terminate TLS with a host proxy and rerun with --external-caddy --http-port 9710." >&2
   exit 1
 fi
+use_whiptail() {
+  [[ -t 0 && -t 2 ]] && command -v whiptail >/dev/null 2>&1
+}
+
+read_input() {
+  local prompt="$1" outvar="$2" value=""
+  if use_whiptail; then
+    if ! value="$(whiptail --title "ChESS-PIT installer" --inputbox "$prompt" 10 70 3>&1 1>&2 2>&3)"; then
+      echo "Input cancelled." >&2
+      exit 1
+    fi
+    printf -v "$outvar" '%s' "$value"
+    return
+  fi
+  read -r -p "$prompt" value
+  printf -v "$outvar" '%s' "$value"
+}
+
+read_secret() {
+  local prompt="$1" outvar="$2" secret="" char
+  if [[ ! -t 0 || ! -t 2 ]]; then
+    IFS= read -r secret
+    printf -v "$outvar" '%s' "$secret"
+    return
+  fi
+  if use_whiptail; then
+    if ! secret="$(whiptail --title "ChESS-PIT installer" --passwordbox "$prompt" 10 70 3>&1 1>&2 2>&3)"; then
+      echo "Password entry cancelled." >&2
+      exit 1
+    fi
+    printf -v "$outvar" '%s' "$secret"
+    return
+  fi
+  printf '%s' "$prompt" >&2
+  while IFS= read -r -s -n 1 char; do
+    case "$char" in
+      "")
+        break
+        ;;
+      $'\177'|$'\b')
+        if [[ -n "$secret" ]]; then
+          secret="${secret%?}"
+          printf '\b \b' >&2
+        fi
+        ;;
+      $'\025')
+        if [[ -n "$secret" ]]; then
+          printf '\r\033[K%s' "$prompt" >&2
+          secret=""
+        fi
+        ;;
+      *)
+        secret+="$char"
+        printf '*' >&2
+        ;;
+    esac
+  done
+  printf '\n' >&2
+  printf -v "$outvar" '%s' "$secret"
+}
+
 if [[ -z "$domain" ]]; then
-  read -r -p "Public domain (already pointing to this VPS): " domain
+  read_input "Public domain (already pointing to this VPS): " domain
 fi
 domain="${domain,,}"
 if ! validate_domain "$domain"; then
@@ -254,49 +315,6 @@ else
     set_env_value CHESSPIT_HTTP_PORT "$http_port"
   fi
 fi
-
-read_secret() {
-  local prompt="$1" outvar="$2" secret="" char
-  if [[ ! -t 0 || ! -t 2 ]]; then
-    IFS= read -r secret
-    printf -v "$outvar" '%s' "$secret"
-    return
-  fi
-  if command -v whiptail >/dev/null 2>&1; then
-    if ! secret="$(whiptail --title "ChESS-PIT installer" --passwordbox "$prompt" 10 70 3>&1 1>&2 2>&3)"; then
-      echo "Password entry cancelled." >&2
-      exit 1
-    fi
-    printf -v "$outvar" '%s' "$secret"
-    return
-  fi
-  printf '%s' "$prompt" >&2
-  while IFS= read -r -s -n 1 char; do
-    case "$char" in
-      "")
-        break
-        ;;
-      $'\177'|$'\b')
-        if [[ -n "$secret" ]]; then
-          secret="${secret%?}"
-          printf '\b \b' >&2
-        fi
-        ;;
-      $'\025')
-        while [[ -n "$secret" ]]; do
-          secret="${secret%?}"
-          printf '\b \b' >&2
-        done
-        ;;
-      *)
-        secret+="$char"
-        printf '*' >&2
-        ;;
-    esac
-  done
-  printf '\n' >&2
-  printf -v "$outvar" '%s' "$secret"
-}
 
 prompt_password() {
   local label="$1" first second
