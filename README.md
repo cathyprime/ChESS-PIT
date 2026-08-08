@@ -236,6 +236,10 @@ Configuration and password hashes go to `${XDG_CONFIG_HOME:-$HOME/.config}/chess
 instead of `/etc/chesspit`, and `TRUSTED_PROXIES` defaults to `10.89.0.0/16` for
 Podman (`172.16.0.0/12` for Docker); both stay overridable.
 
+[docs/deployment.md](docs/deployment.md#complete-rootless-walkthrough) contains a
+complete walkthrough that creates a dedicated `chesspit` user, grants its
+subordinate ID ranges, installs the stack, and wires it to a host Caddy.
+
 ### Configuration notes
 
 The backend also accepts `DATABASE_URL` (SQLite locally, PostgreSQL in

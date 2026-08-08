@@ -121,6 +121,70 @@ environment when the `.env` file is first created.
 Status commands follow the selected engine, for example
 `podman compose --env-file ~/.config/chesspit/.env ps`.
 
+### Complete rootless walkthrough
+
+This example installs ChESSPIT under a dedicated unprivileged `chesspit` user
+on a fresh Debian Trixie VPS that already runs Caddy for other sites.
+
+Prepare the host once, as root:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git podman docker-compose uidmap slirp4netns
+sudo adduser --disabled-password --gecos "" chesspit
+sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 chesspit
+sudo loginctl enable-linger chesspit
+```
+
+`docker-compose` supplies the Compose v2 provider that `podman compose` calls,
+`uidmap` provides `newuidmap`/`newgidmap` for the user namespace, and the
+subordinate ranges are the 65536 IDs the runner's UID 10001 mapping needs.
+Linger keeps the user's Podman units running after logout.
+
+Log in as that user over SSH so the session has a real `XDG_RUNTIME_DIR`
+(`sudo -iu chesspit` does not create one, and `systemctl --user` then fails):
+
+```bash
+ssh chesspit@your-domain
+systemctl --user enable --now podman.socket
+git clone https://github.com/kkreczko/ChESS-PIT.git ~/chesspit
+cd ~/chesspit
+ENGINE=podman ./scripts/install-vps.sh --external-caddy --http-port 9710
+```
+
+The installer prompts for the domain and the arena/admin passwords, builds the
+images, writes `~/.config/chesspit/.env` plus the Argon2id hashes, starts the
+stack, and waits for health. Verify it directly:
+
+```bash
+curl -s 127.0.0.1:9710/api/health
+podman compose --env-file ~/.config/chesspit/.env ps
+```
+
+Finally, publish it through the host Caddy, as root:
+
+```caddyfile
+arena.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:9710
+}
+```
+
+```bash
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+The `deploy/chesspit-caddy` import is equivalent, but a home-directory path is
+often unreadable by the `caddy` user, so the two directives above are inlined
+here. Updates run entirely as the `chesspit` user:
+
+```bash
+cd ~/chesspit
+git pull --ff-only
+ENGINE=podman ./scripts/install-vps.sh --external-caddy --http-port 9710
+```
+
 ## Uploaded-engine boundary
 
 Uploaded binaries never execute in the API container or directly on the VPS
