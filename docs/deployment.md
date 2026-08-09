@@ -78,6 +78,145 @@ secrets, builds every image, starts automatic HTTPS, and waits for the database,
 web app, and upload sandbox to become healthy. It is safe to rerun and preserves
 all named Docker volumes and credentials.
 
+## Rootless Podman
+
+The installer is container-engine agnostic. It uses Docker by default; select
+Podman explicitly with `ENGINE=podman` or `--engine podman` (the flag wins).
+There is no auto-detection, and any other value is rejected.
+
+Podman must provide the docker-compose v2 provider, because the stack relies on
+Compose v2 features (`depends_on.condition`, file `secrets:`, `profiles:`, and
+an `internal:` network) that podman-compose does not support reliably. Install
+the `docker-compose` v2 binary so `podman compose version` reports
+`Docker Compose version v2.x`; the installer refuses to continue otherwise.
+
+Rootless prerequisites:
+
+- an API socket: `systemctl --user enable --now podman.socket`. The installer
+  starts it if needed and exports `DOCKER_HOST` when it is not already set;
+- `loginctl enable-linger $USER`, so containers keep running after logout;
+- subordinate ID ranges at least 65536 wide in `/etc/subuid` and `/etc/subgid`
+  (the runner maps container UID/GID 10001), for example
+  `sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 $USER`.
+
+Rootless installs do not need `sudo`. Configuration and password hashes are
+written to `${XDG_CONFIG_HOME:-$HOME/.config}/chesspit` (directory `0700`,
+`.env` `0600`) instead of `/etc/chesspit`, and that `.env` is passed to Compose
+with `--env-file`. Rootful Podman keeps the `/etc/chesspit` layout.
+
+The bundled Caddy profile binds ports 80 and 443, which rootless containers
+cannot do, so the installer refuses that combination. Terminate TLS with a host
+proxy and use the external-Caddy mode:
+
+```bash
+ENGINE=podman ./scripts/install-vps.sh --external-caddy --http-port 9710
+```
+
+The final health check then probes `http://127.0.0.1:9710/api/health` directly.
+
+`TRUSTED_PROXIES` defaults per engine: `172.16.0.0/12` for Docker and
+`10.89.0.0/16` for Podman's default bridge. Both remain overridable through the
+environment when the `.env` file is first created.
+
+### Boot-time service
+
+Docker's daemon re-applies the Compose `restart: unless-stopped` policies after
+a reboot, but Podman has no such daemon. When the engine is Podman, the
+installer therefore writes and enables a `chesspit.service` systemd unit that
+runs `podman compose up -d` on boot and `podman compose down` on stop:
+
+- rootless: `${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/chesspit.service`,
+  enabled with `systemctl --user`; it keeps running past logout and starts at
+  boot only when linger is enabled (`loginctl enable-linger $USER`);
+- rootful: `/etc/systemd/system/chesspit.service`, enabled with
+  `systemctl --system`.
+
+The unit records the flags used at install time, including the `--env-file`
+pointing at the generated `.env` and the `bundled-caddy` profile when it is
+active, so rerunning the installer with different flags refreshes it. Manage
+the stack afterwards with:
+
+```bash
+systemctl --user status chesspit
+systemctl --user restart chesspit
+systemctl --user stop chesspit
+```
+
+Use `systemctl --system ...` for a rootful Podman install. Docker installs get
+no unit; their behaviour is unchanged.
+
+Status commands follow the selected engine, for example
+`podman compose --env-file ~/.config/chesspit/.env ps`.
+
+### Complete rootless walkthrough
+
+This example installs ChESSPIT under a dedicated unprivileged `chesspit` user
+on a fresh Debian Trixie VPS that already runs Caddy for other sites.
+
+Prepare the host once, as root:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git podman docker-compose uidmap slirp4netns
+sudo adduser --disabled-password --gecos "" chesspit
+sudo usermod --add-subuids 100000-165535 --add-subgids 100000-165535 chesspit
+sudo loginctl enable-linger chesspit
+```
+
+`docker-compose` supplies the Compose v2 provider that `podman compose` calls,
+`uidmap` provides `newuidmap`/`newgidmap` for the user namespace, and the
+subordinate ranges are the 65536 IDs the runner's UID 10001 mapping needs.
+Linger keeps the user's Podman units running after logout.
+
+Log in as that user over SSH so the session has a real `XDG_RUNTIME_DIR`
+(`sudo -iu chesspit` does not create one, and `systemctl --user` then fails):
+
+```bash
+ssh chesspit@your-domain
+systemctl --user enable --now podman.socket
+git clone https://github.com/kkreczko/ChESS-PIT.git ~/chesspit
+cd ~/chesspit
+ENGINE=podman ./scripts/install-vps.sh --external-caddy --http-port 9710
+```
+
+The installer prompts for the domain and the arena/admin passwords, builds the
+images, writes `~/.config/chesspit/.env` plus the Argon2id hashes, starts the
+stack, enables the `chesspit.service` user unit, and waits for health. Verify it
+directly:
+
+```bash
+curl -s 127.0.0.1:9710/api/health
+systemctl --user status chesspit
+podman compose --env-file ~/.config/chesspit/.env ps
+```
+
+Because linger is enabled, that unit also starts the stack after a reboot;
+confirm with `sudo reboot` followed by the same `curl`.
+
+Finally, publish it through the host Caddy, as root:
+
+```caddyfile
+arena.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:9710
+}
+```
+
+```bash
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
+
+The `deploy/chesspit-caddy` import is equivalent, but a home-directory path is
+often unreadable by the `caddy` user, so the two directives above are inlined
+here. Updates run entirely as the `chesspit` user:
+
+```bash
+cd ~/chesspit
+git pull --ff-only
+ENGINE=podman ./scripts/install-vps.sh --external-caddy --http-port 9710
+```
+
 ## Uploaded-engine boundary
 
 Uploaded binaries never execute in the API container or directly on the VPS

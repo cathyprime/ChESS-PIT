@@ -26,11 +26,7 @@ services:
     mem_limit: 3g
     cpus: 4.0
     healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import socket; s=socket.socket(socket.AF_UNIX); s.settimeout(1); s.connect('/run/chesspit-runner/runner.sock'); s.sendall(b'{\"version\":1,\"op\":\"health\"}'+bytes([10])); assert b'\"ok\":true' in s.recv(256)"
+      test: ["CMD", "python", "/runner/runner-healthcheck.py"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -81,11 +77,7 @@ services:
     security_opt: [no-new-privileges:true]
     pids_limit: 256
     healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import json,urllib.request; d=json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/health')); assert d['ok'] and d['stockfish'] and d['fastchess'] and d['sandbox']=='ready'"
+      test: ["CMD", "python", "/app/scripts/api-healthcheck.py", "--require-tools"]
       interval: 10s
       timeout: 5s
       retries: 30

@@ -13,6 +13,7 @@ COPY backend/requirements.txt backend/requirements.lock ./
 RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 COPY backend ./backend
 COPY scripts/sandbox-engine.py ./scripts/sandbox-engine.py
+COPY scripts/api-healthcheck.py ./scripts/api-healthcheck.py
 COPY --from=chess-tools /fastchess /app/tools/fastchess
 COPY --from=chess-tools /stockfish /app/tools/stockfish
 ENV PYTHONPATH=/app/backend
@@ -38,6 +39,7 @@ CMD ["sh", "-c", "install -d -o 10001 -g 10001 -m 0770 /app/data /app/data/bots 
 FROM python:3.13-slim@sha256:6771159cd4fa5d9bba1258caf0b82e6b73458c694d178ad97c5e925c2d0e1a91 AS runner
 WORKDIR /runner
 COPY scripts/runner-daemon.py ./runner-daemon.py
+COPY scripts/runner-healthcheck.py ./runner-healthcheck.py
 RUN groupadd -g 10001 chesspit \
  && install -d -o root -g chesspit -m 2770 /run/chesspit-runner \
  && install -d -o root -g root -m 0711 /cache

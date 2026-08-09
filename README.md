@@ -212,6 +212,40 @@ sudo docker compose ps
 sudo docker compose logs --tail=200 runner api web caddy db
 ```
 
+### Rootless Podman
+
+The installer defaults to Docker and can also drive Podman. Select the engine
+explicitly with `ENGINE=podman` or `--engine podman`; there is no auto-detection.
+Podman must expose the docker-compose v2 provider (`podman compose version` must
+report `Docker Compose version v2.x`), because podman-compose does not support
+the Compose features this stack uses.
+
+A rootless install needs no `sudo`. Enable the user API socket and linger first,
+and make sure `/etc/subuid` and `/etc/subgid` grant at least 65536 subordinate
+IDs, since the runner maps container UID 10001:
+
+```bash
+systemctl --user enable --now podman.socket
+loginctl enable-linger "$USER"
+ENGINE=podman ./scripts/install-vps.sh --external-caddy --http-port 9710
+```
+
+Rootless containers cannot bind ports 80 and 443, so the bundled Caddy profile
+is refused; terminate TLS with a host proxy in front of the loopback port.
+Configuration and password hashes go to `${XDG_CONFIG_HOME:-$HOME/.config}/chesspit`
+instead of `/etc/chesspit`, and `TRUSTED_PROXIES` defaults to `10.89.0.0/16` for
+Podman (`172.16.0.0/12` for Docker); both stay overridable.
+
+Podman has no daemon that restarts containers after a reboot, so the installer
+also writes and enables a `chesspit.service` systemd unit — a user unit when
+rootless (hence the linger requirement), a system unit when rootful. Manage the
+stack with `systemctl --user status|restart|stop chesspit`. Docker installs are
+unchanged and keep relying on the Docker daemon's restart policies.
+
+[docs/deployment.md](docs/deployment.md#complete-rootless-walkthrough) contains a
+complete walkthrough that creates a dedicated `chesspit` user, grants its
+subordinate ID ranges, installs the stack, and wires it to a host Caddy.
+
 ### Configuration notes
 
 The backend also accepts `DATABASE_URL` (SQLite locally, PostgreSQL in
